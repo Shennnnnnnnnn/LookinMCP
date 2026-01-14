@@ -16,6 +16,12 @@
 
 - (NSData *)dataFromHierarchyInfo:(LookinHierarchyInfo *)info imageCompression:(CGFloat)compression fileName:(NSString **)fileName;
 
+- (NSString *)xmlStringFromHierarchyInfo:(LookinHierarchyInfo *)info;
+
 + (void)exportScreenshotWithDisplayItem:(LookinDisplayItem *)displayItem;
+
++ (void)exportXMLWithDisplayItem:(LookinDisplayItem *)displayItem;
+
++ (void)copyXMLWithDisplayItem:(LookinDisplayItem *)displayItem;
 
 @end

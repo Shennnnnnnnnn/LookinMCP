@@ -434,20 +434,80 @@
     
     LKExportAccessoryView *accessoryView = [LKExportAccessoryView new];
     $(accessoryView).sizeToFit;
-    [RACObserve([LKPreferenceManager mainManager], preferredExportCompression) subscribeNext:^(NSNumber *num) {
-        CGFloat compression = num.doubleValue;
-        exportedData = [exportManager dataFromHierarchyInfo:hierarchyInfo imageCompression:compression fileName:&fileName];
+    
+    // Update export data based on format and compression
+    void (^updateExportData)(void) = ^{
+        if (accessoryView.selectedFormat == LKExportFormatXML) {
+            // Export as XML
+            NSString *xmlString = [exportManager xmlStringFromHierarchyInfo:hierarchyInfo];
+            exportedData = [xmlString dataUsingEncoding:NSUTF8StringEncoding];
+            
+            NSString *timeString = ({
+                NSDate *date = [NSDate date];
+                NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+                [formatter setDateFormat:@"MMddHHmm"];
+                [formatter stringFromDate:date];
+            });
+            NSString *iOSVersion = ({
+                NSString *str = hierarchyInfo.appInfo.osDescription;
+                NSUInteger dotIdx = [str rangeOfString:@"."].location;
+                if (dotIdx != NSNotFound) {
+                    str = [str substringToIndex:dotIdx];
+                }
+                str;
+            });
+            fileName = [NSString stringWithFormat:@"%@_ios%@_%@.xml", hierarchyInfo.appInfo.appName, iOSVersion, timeString];
+        } else {
+            // Export as Lookin format
+            CGFloat compression = [LKPreferenceManager mainManager].preferredExportCompression;
+            exportedData = [exportManager dataFromHierarchyInfo:hierarchyInfo imageCompression:compression fileName:&fileName];
+        }
         accessoryView.dataSize = exportedData.length;
+    };
+    
+    // Initial update
+    updateExportData();
+    
+    // Listen for format changes
+    [[NSNotificationCenter defaultCenter] addObserverForName:@"LKExportFormatDidChange" object:accessoryView queue:nil usingBlock:^(NSNotification * _Nonnull note) {
+        updateExportData();
+    }];
+    
+    // Listen for compression changes (only for Lookin format)
+    [RACObserve([LKPreferenceManager mainManager], preferredExportCompression) subscribeNext:^(NSNumber *num) {
+        if (accessoryView.selectedFormat == LKExportFormatLookin) {
+            updateExportData();
+        }
     }];
     
     NSSavePanel *panel = [NSSavePanel savePanel];
     panel.accessoryView = accessoryView;
     [panel setNameFieldStringValue:fileName];
     [panel setAllowsOtherFileTypes:NO];
-    [panel setAllowedFileTypes:@[@"lookin"]];
+    
+    // Set allowed file types based on format
+    if (accessoryView.selectedFormat == LKExportFormatXML) {
+        [panel setAllowedFileTypes:@[@"xml"]];
+    } else {
+        [panel setAllowedFileTypes:@[@"lookin"]];
+    }
+    
     [panel setExtensionHidden:YES];
     [panel setCanCreateDirectories:YES];
+    
+    // Update file extension when format changes
+    [[NSNotificationCenter defaultCenter] addObserverForName:@"LKExportFormatDidChange" object:accessoryView queue:nil usingBlock:^(NSNotification * _Nonnull note) {
+        if (accessoryView.selectedFormat == LKExportFormatXML) {
+            [panel setAllowedFileTypes:@[@"xml"]];
+        } else {
+            [panel setAllowedFileTypes:@[@"lookin"]];
+        }
+        [panel setNameFieldStringValue:fileName];
+    }];
+    
     [panel beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse result) {
+        [[NSNotificationCenter defaultCenter] removeObserver:self name:@"LKExportFormatDidChange" object:accessoryView];
+        
         if (result == NSModalResponseOK) {
             NSString *path = [[panel URL] path];
             NSError *writeError;

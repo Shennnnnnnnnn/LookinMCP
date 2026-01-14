@@ -105,7 +105,6 @@
     if ([bundleID isEqualToString:@"hughkli.Lookin"]) {
         return @"fce2565c-518c-4851-be73-fa8317dd1590";
     }
-    NSAssert(NO, @"");
     return nil;
 }
 

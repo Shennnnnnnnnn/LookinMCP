@@ -30,6 +30,28 @@ macOS app: https://github.com/hughkli/Lookin/
 - How to turn on Swift optimization for Lookin: https://bytedance.larkoffice.com/docx/GFRLdzpeKoakeyxvwgCcZ5XdnTb
 - Documentation Collection: https://bytedance.larkoffice.com/docx/Yvv1d57XQoe5l0xZ0ZRc0ILfnWb
 
+# XML Export Feature
+Lookin now supports exporting UI hierarchy to XML format, which includes all necessary layout information for WebApp development.
+
+## Features
+- Export complete UI hierarchy with frame, colors, corner radius, and other properties
+- Smaller file size compared to .lookin format (no screenshots)
+- Human-readable XML format
+- Ready for WebApp reconstruction
+
+## Usage
+1. Open your app in Lookin
+2. Select `File` -> `Export`
+3. Choose `Export Format: XML`
+4. Save the file
+
+## Documentation
+- [XML Export Guide](Docs/XML导出功能说明.md)
+- [HTML Demo](Docs/XML_to_WebApp_Demo.html)
+- [React Example](Docs/React_Component_Example.jsx)
+- [Vue Example](Docs/Vue_Component_Example.vue)
+- [XML Example](Docs/XML_Export_Example.xml)
+
 # Acknowledgements
 https://qxh1ndiez2w.feishu.cn/docx/YIFjdE4gIolp3hxn1tGckiBxnWf
 
@@ -66,6 +88,28 @@ macOS 端软件：https://github.com/hughkli/Lookin/
 - 如何在 Lookin 中展示更多成员变量: https://bytedance.larkoffice.com/docx/CKRndHqdeoub11xSqUZcMlFhnWe
 - 如何为 Lookin 开启 Swift 优化: https://bytedance.larkoffice.com/docx/GFRLdzpeKoakeyxvwgCcZ5XdnTb
 - 文档汇总：https://bytedance.larkoffice.com/docx/Yvv1d57XQoe5l0xZ0ZRc0ILfnWb
+
+# XML 导出功能
+Lookin 现在支持将 UI 层级结构导出为 XML 格式，包含所有必要的布局信息，可用于 WebApp 页面搭建。
+
+## 功能特性
+- 导出完整的 UI 层级，包含 frame、颜色、圆角等所有属性
+- 文件体积更小（不包含截图数据）
+- 人类可读的 XML 格式
+- 可直接用于 WebApp 页面重建
+
+## 使用方法
+1. 在 Lookin 中打开你的应用
+2. 选择 `File` -> `Export`
+3. 选择 `Export Format: XML`
+4. 保存文件
+
+## 文档资料
+- [XML 导出功能说明](Docs/XML导出功能说明.md)
+- [HTML 演示工具](Docs/XML_to_WebApp_Demo.html)
+- [React 组件示例](Docs/React_Component_Example.jsx)
+- [Vue 组件示例](Docs/Vue_Component_Example.vue)
+- [XML 示例文件](Docs/XML_Export_Example.xml)
 
 # 鸣谢
 https://qxh1ndiez2w.feishu.cn/docx/YIFjdE4gIolp3hxn1tGckiBxnWf

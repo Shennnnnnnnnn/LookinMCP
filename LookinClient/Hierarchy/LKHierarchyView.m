@@ -432,7 +432,7 @@ extern NSString *const LKAppShowConsoleNotificationName;
     }
     
     [menu addItem:[NSMenuItem separatorItem]];
-    
+
     if (displayItem.groupScreenshot) {
         [menu addItem:({
             NSMenuItem *item = [NSMenuItem new];
@@ -442,6 +442,22 @@ extern NSString *const LKAppShowConsoleNotificationName;
             item;
         })];        
     }
+    
+    [menu addItem:({
+        NSMenuItem *item = [NSMenuItem new];
+        item.target = self;
+        item.action = @selector(_handleExportXML:);
+        item.title = NSLocalizedString(@"Export as XML…", nil);
+        item;
+    })];
+    
+    [menu addItem:({
+        NSMenuItem *item = [NSMenuItem new];
+        item.target = self;
+        item.action = @selector(_handleCopyXML:);
+        item.title = NSLocalizedString(@"Copy XML", nil);
+        item;
+    })];
 }
 
 #pragma mark - <NSTextFieldDelegate>
@@ -517,6 +533,16 @@ extern NSString *const LKAppShowConsoleNotificationName;
 - (void)_handleExportScreenshot:(NSMenuItem *)menuItem {
     LKHierarchyRowView *view = [menuItem.menu lookin_getBindObjectForKey:kMenuBindKey_RowView];
     [LKExportManager exportScreenshotWithDisplayItem:view.displayItem];
+}
+
+- (void)_handleExportXML:(NSMenuItem *)menuItem {
+    LKHierarchyRowView *view = [menuItem.menu lookin_getBindObjectForKey:kMenuBindKey_RowView];
+    [LKExportManager exportXMLWithDisplayItem:view.displayItem];
+}
+
+- (void)_handleCopyXML:(NSMenuItem *)menuItem {
+    LKHierarchyRowView *view = [menuItem.menu lookin_getBindObjectForKey:kMenuBindKey_RowView];
+    [LKExportManager copyXMLWithDisplayItem:view.displayItem];
 }
 
 - (void)_handleCopyDisplayItemName:(NSMenuItem *)menuItem {

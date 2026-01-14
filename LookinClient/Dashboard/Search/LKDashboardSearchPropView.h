@@ -23,4 +23,6 @@
 
 - (void)renderWithAttribute:(LookinAttribute *)attribute;
 
+- (NSString *)_stringValueFromAttribute:(LookinAttribute *)attribute;
+
 @end
