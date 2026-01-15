@@ -16,6 +16,7 @@
 #import "LKPreferenceManager.h"
 #import "LKStaticHierarchyDataSource.h"
 #import "LKWindowController.h"
+#import "LKMCPBridge.h"
 #include <mach-o/dyld.h>
 #import <Sparkle/Sparkle.h>
 @import AppCenter;
@@ -57,6 +58,12 @@ static NSUInteger const kTag_Jobs = 69;
 static NSUInteger const kTag_DocumentCollection = 70;
 static NSUInteger const kTag_CustomInformation = 71;
 static NSUInteger const kTag_Acknowledgements = 72;
+
+// MCP 相关
+static NSUInteger const kTag_MCP = 80;
+static NSUInteger const kTag_MCPToggleServer = 81;
+static NSUInteger const kTag_MCPExportHierarchy = 82;
+static NSUInteger const kTag_MCPServerStatus = 83;
 
 @interface LKAppMenuManager ()
 
@@ -214,6 +221,9 @@ static NSUInteger const kTag_Acknowledgements = 72;
         item.action = @selector(_handleAcknowledgements);
     }
     
+    // MCP 菜单
+    [self setupMCPMenu:menu_help];
+    
     NSArray *itemArray = [menu_file.itemArray arrayByAddingObjectsFromArray:menu_view.itemArray];
     [itemArray enumerateObjectsUsingBlock:^(NSMenuItem * _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
         NSString *selString = self.delegatingTagToSelMap[@(obj.tag)];
@@ -367,6 +377,95 @@ static NSUInteger const kTag_Acknowledgements = 72;
 
 - (void)_handleAcknowledgements {
     [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://qxh1ndiez2w.feishu.cn/docx/YIFjdE4gIolp3hxn1tGckiBxnWf"]];
+}
+
+#pragma mark - MCP Menu
+
+- (void)setupMCPMenu:(NSMenu *)helpMenu {
+    // 在帮助菜单中添加 MCP 相关项
+    [helpMenu addItem:[NSMenuItem separatorItem]];
+    
+    // MCP 子菜单
+    NSMenu *mcpMenu = [[NSMenu alloc] initWithTitle:@"MCP"];
+    
+    // 切换服务器状态
+    NSMenuItem *toggleServerItem = [[NSMenuItem alloc] initWithTitle:@"启动 MCP 服务器" 
+                                                               action:@selector(_handleMCPToggleServer:) 
+                                                        keyEquivalent:@""];
+    toggleServerItem.target = self;
+    toggleServerItem.tag = kTag_MCPToggleServer;
+    [mcpMenu addItem:toggleServerItem];
+    
+    // 服务器状态
+    NSMenuItem *statusItem = [[NSMenuItem alloc] initWithTitle:@"服务器状态: 未启动" 
+                                                        action:nil 
+                                                 keyEquivalent:@""];
+    statusItem.tag = kTag_MCPServerStatus;
+    statusItem.enabled = NO;
+    [mcpMenu addItem:statusItem];
+    
+    [mcpMenu addItem:[NSMenuItem separatorItem]];
+    
+    // 导出视图层级到剪贴板
+    NSMenuItem *exportItem = [[NSMenuItem alloc] initWithTitle:@"导出视图层级到剪贴板" 
+                                                        action:@selector(_handleMCPExportHierarchy:) 
+                                                 keyEquivalent:@""];
+    exportItem.target = self;
+    exportItem.tag = kTag_MCPExportHierarchy;
+    [mcpMenu addItem:exportItem];
+    
+    // 添加到帮助菜单
+    NSMenuItem *mcpMenuItem = [[NSMenuItem alloc] initWithTitle:@"MCP" action:nil keyEquivalent:@""];
+    mcpMenuItem.tag = kTag_MCP;
+    [mcpMenuItem setSubmenu:mcpMenu];
+    [helpMenu addItem:mcpMenuItem];
+    
+    // 更新服务器状态
+    [self updateMCPServerStatus];
+}
+
+- (void)updateMCPServerStatus {
+    NSMenu *mainMenu = [NSApp mainMenu];
+    NSMenu *helpMenu = [mainMenu itemAtIndex:5].submenu;
+    NSMenuItem *mcpMenuItem = [helpMenu itemWithTag:kTag_MCP];
+    NSMenu *mcpMenu = mcpMenuItem.submenu;
+    
+    NSMenuItem *toggleItem = [mcpMenu itemWithTag:kTag_MCPToggleServer];
+    NSMenuItem *statusItem = [mcpMenu itemWithTag:kTag_MCPServerStatus];
+}
+
+- (void)_handleMCPToggleServer:(NSMenuItem *)sender {
+    LKMCPBridge *bridge = [LKMCPBridge sharedInstance];
+    
+    [self updateMCPServerStatus];
+}
+
+- (void)_handleMCPExportHierarchy:(NSMenuItem *)sender {
+    NSString *hierarchyJSON = [[LKMCPBridge sharedInstance] exportHierarchyWithMaxDepth:-1 
+                                                                            filterClass:nil];
+    
+    if (hierarchyJSON) {
+        NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+        [pasteboard clearContents];
+        [pasteboard setString:hierarchyJSON forType:NSPasteboardTypeString];
+        
+        NSLog(@"视图层级已复制到剪贴板");
+        
+        // 显示通知
+        NSAlert *alert = [[NSAlert alloc] init];
+        alert.messageText = @"导出成功";
+        alert.informativeText = @"视图层级数据已复制到剪贴板";
+        alert.alertStyle = NSAlertStyleInformational;
+        [alert addButtonWithTitle:@"确定"];
+        [alert runModal];
+    } else {
+        NSAlert *alert = [[NSAlert alloc] init];
+        alert.messageText = @"导出失败";
+        alert.informativeText = @"没有可用的视图层级数据，请先连接到应用并刷新";
+        alert.alertStyle = NSAlertStyleWarning;
+        [alert addButtonWithTitle:@"确定"];
+        [alert runModal];
+    }
 }
 
 @end

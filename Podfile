@@ -10,6 +10,7 @@ target 'LookinClient' do
     pod 'Sparkle', '~> 1.0'
 #    pod 'LookinShared', :git=>'https://github.com/QMUI/LookinServer.git', :branch => 'develop'
     pod 'LookinShared', :path=>'../LookinServer/'
+    pod 'GCDWebServer', '~> 3.0'
 end
 
 # ReactiveObjc 之类的 SDK 的 deployment target 太低了导致无法编译，所以这里改成以项目为准

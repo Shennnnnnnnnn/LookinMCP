@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "lookin": {
+      "command": "/usr/local/bin/python3",
+      "args": [
+        "MCP/lookin_mcp_server.py"
+      ]
+    }
+  }
+}

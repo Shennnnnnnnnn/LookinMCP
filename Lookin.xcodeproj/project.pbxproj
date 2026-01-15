@@ -14,6 +14,8 @@
 		1892DD292AF25EDE0016D61B /* LookinMsgTargetAction.m in Sources */ = {isa = PBXBuildFile; fileRef = 1892DD252AF25EDE0016D61B /* LookinMsgTargetAction.m */; };
 		1892DD2A2AF25EDE0016D61B /* LookinMsgAttribute.m in Sources */ = {isa = PBXBuildFile; fileRef = 1892DD282AF25EDE0016D61B /* LookinMsgAttribute.m */; };
 		601AD5E52A64D6110013F490 /* LKHierarchyDataSource+KeyDown.m in Sources */ = {isa = PBXBuildFile; fileRef = 601AD5E42A64D6110013F490 /* LKHierarchyDataSource+KeyDown.m */; };
+		640851662F17B66800EE05D1 /* LKMCPBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = 640851652F17B66800EE05D1 /* LKMCPBridge.m */; };
+		640851692F17BC7B00EE05D1 /* LKMCPHTTPServer.m in Sources */ = {isa = PBXBuildFile; fileRef = 640851682F17BC7B00EE05D1 /* LKMCPHTTPServer.m */; };
 		7BFFDF0F2AF12AA10039B828 /* LookinAttributesGroup+LookinClient.m in Sources */ = {isa = PBXBuildFile; fileRef = 7BFFDF0E2AF12AA10039B828 /* LookinAttributesGroup+LookinClient.m */; };
 		7BFFDF122AF12E940039B828 /* LookinAttributesSection+LookinClient.m in Sources */ = {isa = PBXBuildFile; fileRef = 7BFFDF112AF12E940039B828 /* LookinAttributesSection+LookinClient.m */; };
 		7BFFDF152AF134240039B828 /* LKDashboardSectionViewPool.m in Sources */ = {isa = PBXBuildFile; fileRef = 7BFFDF142AF134240039B828 /* LKDashboardSectionViewPool.m */; };
@@ -231,6 +233,10 @@
 		5E8E4C9C392BAAF93643C21E /* Pods-LookinClient.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-LookinClient.release.xcconfig"; path = "Target Support Files/Pods-LookinClient/Pods-LookinClient.release.xcconfig"; sourceTree = "<group>"; };
 		601AD5E32A64D6110013F490 /* LKHierarchyDataSource+KeyDown.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "LKHierarchyDataSource+KeyDown.h"; sourceTree = "<group>"; };
 		601AD5E42A64D6110013F490 /* LKHierarchyDataSource+KeyDown.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "LKHierarchyDataSource+KeyDown.m"; sourceTree = "<group>"; };
+		640851642F17B66800EE05D1 /* LKMCPBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LKMCPBridge.h; sourceTree = "<group>"; };
+		640851652F17B66800EE05D1 /* LKMCPBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = LKMCPBridge.m; sourceTree = "<group>"; };
+		640851672F17BC7B00EE05D1 /* LKMCPHTTPServer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LKMCPHTTPServer.h; sourceTree = "<group>"; };
+		640851682F17BC7B00EE05D1 /* LKMCPHTTPServer.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = LKMCPHTTPServer.m; sourceTree = "<group>"; };
 		7BFFDF0D2AF12AA10039B828 /* LookinAttributesGroup+LookinClient.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "LookinAttributesGroup+LookinClient.h"; sourceTree = "<group>"; };
 		7BFFDF0E2AF12AA10039B828 /* LookinAttributesGroup+LookinClient.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "LookinAttributesGroup+LookinClient.m"; sourceTree = "<group>"; };
 		7BFFDF102AF12E940039B828 /* LookinAttributesSection+LookinClient.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "LookinAttributesSection+LookinClient.h"; sourceTree = "<group>"; };
@@ -735,6 +741,10 @@
 		AA0757C122C607D7005535DC /* Manager */ = {
 			isa = PBXGroup;
 			children = (
+				640851672F17BC7B00EE05D1 /* LKMCPHTTPServer.h */,
+				640851682F17BC7B00EE05D1 /* LKMCPHTTPServer.m */,
+				640851642F17B66800EE05D1 /* LKMCPBridge.h */,
+				640851652F17B66800EE05D1 /* LKMCPBridge.m */,
 				AA01EF2622DD0D26002A2E06 /* LKHelper.h */,
 				AA01EF2522DD0D26002A2E06 /* LKHelper.m */,
 				AABE9003224169D200030361 /* LKAppMenuManager.h */,
@@ -1293,9 +1303,13 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-LookinClient/Pods-LookinClient-resources-${CONFIGURATION}-input-files.xcfilelist",
 			);
+			inputPaths = (
+			);
 			name = "[CP] Copy Pods Resources";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-LookinClient/Pods-LookinClient-resources-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -1310,9 +1324,13 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-LookinClient/Pods-LookinClient-frameworks-${CONFIGURATION}-input-files.xcfilelist",
 			);
+			inputPaths = (
+			);
 			name = "[CP] Embed Pods Frameworks";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-LookinClient/Pods-LookinClient-frameworks-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -1340,6 +1358,7 @@
 				A26EF69827F89F83005A9E4E /* ShortCocoa+Layout.m in Sources */,
 				AAED8ED822AFED490051242B /* LKDashboardAttributeSizeView.m in Sources */,
 				A721E4942B1CE42800546017 /* LKJSONAttributeItem.m in Sources */,
+				640851692F17BC7B00EE05D1 /* LKMCPHTTPServer.m in Sources */,
 				AAA8C12821CC17680017A345 /* LKBaseViewController.m in Sources */,
 				AA05CCD7221ED5E80086CDD1 /* LKDashboardAttributeSwitchView.m in Sources */,
 				AAA8C12021CC17680017A345 /* LKNavigationManager.m in Sources */,
@@ -1458,6 +1477,7 @@
 				AA7F157822C0F2B9004436AD /* LKConnectionRequest.m in Sources */,
 				AA9A3D732269DDCE00BE46C7 /* LKConsoleViewController.m in Sources */,
 				A777C2A42B2F54D700677624 /* DanceScriptManager.m in Sources */,
+				640851662F17B66800EE05D1 /* LKMCPBridge.m in Sources */,
 				A721E48E2B1CE2BC00546017 /* LKJSONAttributeWindowController.m in Sources */,
 				AA34A15E233F884D00513829 /* LKConstraintPopoverController.m in Sources */,
 				AAA8C15B21CC17680017A345 /* LKStaticViewController.m in Sources */,

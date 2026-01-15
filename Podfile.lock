@@ -7,12 +7,16 @@ PODS:
   - AppCenter/Core (5.12.0)
   - AppCenter/Crashes (5.12.0):
     - AppCenter/Core
+  - GCDWebServer (3.5.4):
+    - GCDWebServer/Core (= 3.5.4)
+  - GCDWebServer/Core (3.5.4)
   - LookinShared (1.2.8)
   - ReactiveObjC (3.1.0)
   - Sparkle (1.27.3)
 
 DEPENDENCIES:
   - AppCenter
+  - GCDWebServer (~> 3.0)
   - LookinShared (from `../LookinServer/`)
   - ReactiveObjC (= 3.1.0)
   - Sparkle (~> 1.0)
@@ -20,6 +24,7 @@ DEPENDENCIES:
 SPEC REPOS:
   https://mirrors.tuna.tsinghua.edu.cn/git/CocoaPods/Specs.git:
     - AppCenter
+    - GCDWebServer
     - ReactiveObjC
     - Sparkle
 
@@ -29,10 +34,11 @@ EXTERNAL SOURCES:
 
 SPEC CHECKSUMS:
   AppCenter: 38e27eb52113bff74426db9f500726933c8d2fd7
+  GCDWebServer: 2c156a56c8226e2d5c0c3f208a3621ccffbe3ce4
   LookinShared: e5ca2b2b0758a1caafffc29cc12764ff92fb419b
   ReactiveObjC: 2a38ea15335de4119d8b17caf1db1484f61db902
   Sparkle: 9c92b492e4eedc1abe98ca77cb3ecc6f1223b01e
 
-PODFILE CHECKSUM: f37eb4ef42fd511ed16804923df0ac3db4d991f2
+PODFILE CHECKSUM: e5cefa2fe6111604aaf963800ff456daf0382888
 
 COCOAPODS: 1.16.2
