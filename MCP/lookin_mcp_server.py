@@ -105,8 +105,8 @@ async def list_tools() -> list[Tool]:
                     },
                     "search_type": {
                         "type": "string",
-                        "enum": ["all", "class", "text", "identifier"],
-                        "description": "搜索类型：all（全部）、class（类名）、text（文本）、identifier（标识符）",
+                        "enum": ["all", "class", "text", "identifier", "size"],
+                        "description": "搜索类型：all（全部）、class（类名）、text（文本）、identifier（标识符）、size（尺寸，格式如 100x200）",
                         "default": "all"
                     }
                 },

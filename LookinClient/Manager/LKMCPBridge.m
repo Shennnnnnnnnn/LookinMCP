@@ -93,10 +93,18 @@
 
   NSMutableDictionary *itemDict = [NSMutableDictionary dictionary];
 
-  // 提取真实的类名 - 使用 lk_simpleDemangledClassName
+  // 提取真实的类名
   NSString *trueClassName =
       item.viewObject.lk_simpleDemangledClassName
           ?: (item.layerObject.lk_simpleDemangledClassName ?: item.className);
+
+  // 简单的类名过滤
+  if (filterClass && filterClass.length > 0) {
+    if (![trueClassName localizedCaseInsensitiveContainsString:filterClass]) {
+      return nil;
+    }
+  }
+
   itemDict[@"className"] = trueClassName ?: @"";
 
   // 基本信息 - 优先使用 viewObject 的 oid 作为主 oid
@@ -120,6 +128,12 @@
   NSString *title = [item title];
   if (title) {
     itemDict[@"title"] = title;
+  }
+
+  // 尝试提取文本内容
+  NSString *textContent = [self getTextContentFromItem:item];
+  if (textContent && textContent.length > 0) {
+    itemDict[@"text"] = textContent;
   }
 
   // Frame 信息
@@ -177,9 +191,17 @@
 
   // 基本信息
   details[@"className"] = item.className ?: @"";
+  details[@"hasViewObject"] = @(item.viewObject != nil);
   NSString *title = [item title];
   if (title) {
     details[@"title"] = title;
+  }
+
+  NSString *textContent = [self getTextContentFromItem:item];
+  if (textContent) {
+    details[@"text"] = textContent;
+  } else {
+    details[@"debug_text_extraction"] = @"Failed to extract text";
   }
 
   // Frame 和 Bounds
@@ -383,23 +405,43 @@
 
   BOOL matched = NO;
 
+  // Resolve true class name
+  NSString *trueClassName =
+      item.viewObject.lk_simpleDemangledClassName
+          ?: (item.layerObject.lk_simpleDemangledClassName ?: item.className);
+
+  // 1. Class Name Search (Case Insensitive)
   if ([searchType isEqualToString:@"all"] ||
       [searchType isEqualToString:@"class"]) {
-    if ([item.className containsString:query]) {
+    if (trueClassName && [trueClassName rangeOfString:query
+                                              options:NSCaseInsensitiveSearch]
+                                 .location != NSNotFound) {
       matched = YES;
     }
   }
 
-  if ([searchType isEqualToString:@"all"] ||
-      [searchType isEqualToString:@"text"]) {
+  // 2. Text Search (Case Insensitive)
+  if (!matched && ([searchType isEqualToString:@"all"] ||
+                   [searchType isEqualToString:@"text"])) {
     NSString *title = [item title];
-    if (title && [title containsString:query]) {
+    if (title &&
+        [title rangeOfString:query options:NSCaseInsensitiveSearch].location !=
+            NSNotFound) {
       matched = YES;
+    }
+    if (!matched) {
+      NSString *text = [self getTextContentFromItem:item];
+      if (text &&
+          [text rangeOfString:query options:NSCaseInsensitiveSearch].location !=
+              NSNotFound) {
+        matched = YES;
+      }
     }
   }
 
-  if ([searchType isEqualToString:@"all"] ||
-      [searchType isEqualToString:@"identifier"]) {
+  // 3. Identifier / OID Search
+  if (!matched && ([searchType isEqualToString:@"all"] ||
+                   [searchType isEqualToString:@"identifier"])) {
     NSNumber *oidValue = nil;
     if (item.layerObject) {
       oidValue = @(item.layerObject.oid);
@@ -409,6 +451,40 @@
     if (oidValue &&
         [[NSString stringWithFormat:@"%@", oidValue] containsString:query]) {
       matched = YES;
+    }
+  }
+
+  // 4. Size Search
+  if (!matched && ([searchType isEqualToString:@"all"] ||
+                   [searchType isEqualToString:@"size"])) {
+    // Parse query for width x height
+    // formats: "100x200", "100.0 x 200.0", "100, 200"
+
+    // Remove spaces
+    NSString *cleanQuery =
+        [[query stringByReplacingOccurrencesOfString:@" "
+                                          withString:@""] lowercaseString];
+    NSArray *dims = nil;
+
+    if ([cleanQuery containsString:@"x"]) {
+      dims = [cleanQuery componentsSeparatedByString:@"x"];
+    } else if ([cleanQuery containsString:@","]) {
+      dims = [cleanQuery componentsSeparatedByString:@","];
+    }
+
+    if (dims && dims.count == 2) {
+      CGFloat targetW = [dims[0] doubleValue];
+      CGFloat targetH = [dims[1] doubleValue];
+
+      if (!CGRectIsNull(item.frame)) {
+        CGFloat w = item.frame.size.width;
+        CGFloat h = item.frame.size.height;
+
+        // Allow small error margin
+        if (ABS(w - targetW) < 1.0 && ABS(h - targetH) < 1.0) {
+          matched = YES;
+        }
+      }
     }
   }
 
@@ -423,11 +499,16 @@
     }
     itemInfo[@"oid"] =
         oidValue ? [NSString stringWithFormat:@"%@", oidValue] : @"";
-    itemInfo[@"className"] = item.className ?: @"";
+    itemInfo[@"className"] = trueClassName ?: @"";
 
     NSString *title = [item title];
     if (title) {
       itemInfo[@"title"] = title;
+    }
+
+    NSString *textContent = [self getTextContentFromItem:item];
+    if (textContent) {
+      itemInfo[@"text"] = textContent;
     }
 
     if (!CGRectIsNull(item.frame)) {
@@ -449,6 +530,121 @@
                    searchType:searchType
                       results:results];
   }
+}
+
+- (NSString *)getTextContentFromItem:(LookinDisplayItem *)item {
+  __block NSString *textContent = nil;
+
+  // 1. Try to get text from viewObject directly (Must be on Main Thread)
+  // Accessing UIKit objects on background thread is unsafe.
+  if (item.viewObject) {
+    void (^accessBlock)(void) = ^{
+      id view = item.viewObject;
+      // Priorities: text > currentTitle (Button) > placeholder > stringValue
+      NSArray *keys = @[
+        @"text", @"currentTitle", @"placeholder", @"stringValue", @"title"
+      ];
+
+      for (NSString *key in keys) {
+        if ([view respondsToSelector:NSSelectorFromString(key)]) {
+          @try {
+            id value = [view valueForKey:key];
+            if (value && [value isKindOfClass:[NSString class]] &&
+                [value length] > 0) {
+              textContent = value;
+              return;
+            }
+          } @catch (NSException *exception) {
+            // Ignore KVC errors
+          }
+        }
+      }
+    };
+
+    if ([NSThread isMainThread]) {
+      accessBlock();
+    } else {
+      dispatch_sync(dispatch_get_main_queue(), accessBlock);
+    }
+  }
+
+  if (textContent) {
+    return textContent;
+  }
+
+  // 2. Fallback: Check attributesGroupList (if populated)
+  if (!item.attributesGroupList)
+    return nil;
+
+  // Check known text property keys (exact matches first, then partial matches)
+  NSArray *exactTextKeys = @[
+    @"text", @"title", @"string", @"placeholder", @"currentTitle",
+    @"stringValue", @"attributedText", @"placeholderText"
+  ];
+
+  // Also check partial matches for Lookin-specific identifiers like "lb_t_t"
+  NSArray *partialTextKeys =
+      @[ @"text", @"title", @"string", @"placeholder", @"lb_t_t" ];
+
+  // First pass: look for exact matches
+  for (LookinAttributesGroup *group in item.attributesGroupList) {
+    if (!group.attrSections)
+      continue;
+    for (LookinAttributesSection *section in group.attrSections) {
+      if (!section.attributes)
+        continue;
+      for (LookinAttribute *attr in section.attributes) {
+        if (attr.value && [attr.value isKindOfClass:[NSString class]]) {
+          // Use identifier or displayTitle as key (consistent with
+          // exportElementInfoWithOID)
+          NSString *key = attr.identifier ?: attr.displayTitle;
+          if (!key)
+            continue;
+
+          NSString *keyLower = [key lowercaseString];
+          NSString *value = (NSString *)attr.value;
+
+          if (value.length > 0) {
+            // Check exact matches first
+            for (NSString *targetKey in exactTextKeys) {
+              if ([keyLower isEqualToString:targetKey]) {
+                return value;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Second pass: look for partial matches
+  for (LookinAttributesGroup *group in item.attributesGroupList) {
+    if (!group.attrSections)
+      continue;
+    for (LookinAttributesSection *section in group.attrSections) {
+      if (!section.attributes)
+        continue;
+      for (LookinAttribute *attr in section.attributes) {
+        if (attr.value && [attr.value isKindOfClass:[NSString class]]) {
+          NSString *key = attr.identifier ?: attr.displayTitle;
+          if (!key)
+            continue;
+
+          NSString *keyLower = [key lowercaseString];
+          NSString *value = (NSString *)attr.value;
+
+          if (value.length > 0) {
+            for (NSString *targetKey in partialTextKeys) {
+              if ([keyLower containsString:targetKey]) {
+                return value;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return nil;
 }
 
 - (void)exportImageFromViewWithOID:(NSString *)oid
