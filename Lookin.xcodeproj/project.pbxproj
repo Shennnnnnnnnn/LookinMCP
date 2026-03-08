@@ -13,6 +13,7 @@
 		1892DD1C2AF258890016D61B /* LookinDisplayItem+LookinClient.m in Sources */ = {isa = PBXBuildFile; fileRef = 1892DD1B2AF258890016D61B /* LookinDisplayItem+LookinClient.m */; };
 		1892DD292AF25EDE0016D61B /* LookinMsgTargetAction.m in Sources */ = {isa = PBXBuildFile; fileRef = 1892DD252AF25EDE0016D61B /* LookinMsgTargetAction.m */; };
 		1892DD2A2AF25EDE0016D61B /* LookinMsgAttribute.m in Sources */ = {isa = PBXBuildFile; fileRef = 1892DD282AF25EDE0016D61B /* LookinMsgAttribute.m */; };
+		3E15839F8C35B47534DB75D8 /* LKMCPManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1F49B94C72704E31B1BDC7D /* LKMCPManager.swift */; };
 		601AD5E52A64D6110013F490 /* LKHierarchyDataSource+KeyDown.m in Sources */ = {isa = PBXBuildFile; fileRef = 601AD5E42A64D6110013F490 /* LKHierarchyDataSource+KeyDown.m */; };
 		640851662F17B66800EE05D1 /* LKMCPBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = 640851652F17B66800EE05D1 /* LKMCPBridge.m */; };
 		640851692F17BC7B00EE05D1 /* LKMCPHTTPServer.m in Sources */ = {isa = PBXBuildFile; fileRef = 640851682F17BC7B00EE05D1 /* LKMCPHTTPServer.m */; };
@@ -573,6 +574,7 @@
 		D4E1FD64236169130070DFB8 /* LKMeasureResultLineData.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LKMeasureResultLineData.h; sourceTree = "<group>"; };
 		D4E1FD65236169130070DFB8 /* LKMeasureResultLineData.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = LKMeasureResultLineData.m; sourceTree = "<group>"; };
 		D97552B9BF9170E090F8CAA7 /* Pods-LookinClient.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-LookinClient.debug.xcconfig"; path = "Target Support Files/Pods-LookinClient/Pods-LookinClient.debug.xcconfig"; sourceTree = "<group>"; };
+		E1F49B94C72704E31B1BDC7D /* LKMCPManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LKMCPManager.swift; path = MCP/LKMCPManager.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -621,6 +623,14 @@
 				07695A2606130B23B91F553C /* Pods-LookinTestflight.release.xcconfig */,
 			);
 			path = Pods;
+			sourceTree = "<group>";
+		};
+		624153E9BD3B0822B5046D47 /* MCP */ = {
+			isa = PBXGroup;
+			children = (
+				E1F49B94C72704E31B1BDC7D /* LKMCPManager.swift */,
+			);
+			name = MCP;
 			sourceTree = "<group>";
 		};
 		A26EF68527F89F83005A9E4E /* ShortCocoa */ = {
@@ -881,6 +891,7 @@
 				AAD3872E2288614B00042229 /* Read */,
 				AAEE450821DF81C800BF2650 /* Preference */,
 				AA48F2A321CC0CA60032EC2C /* MainMenu.xib */,
+				624153E9BD3B0822B5046D47 /* MCP */,
 			);
 			path = LookinClient;
 			sourceTree = "<group>";
@@ -1210,6 +1221,9 @@
 			dependencies = (
 			);
 			name = LookinClient;
+			packageProductDependencies = (
+				25BC62FA8F0547C28730EED9 /* MCP */,
+			);
 			productName = Lookin;
 			productReference = AA48F29B21CC0CA50032EC2C /* Lookin.app */;
 			productType = "com.apple.product-type.application";
@@ -1247,6 +1261,9 @@
 				"zh-Hans",
 			);
 			mainGroup = AA48F29221CC0CA50032EC2C;
+			packageReferences = (
+				9FE42B8FDBA143FCA0E7B5AA /* XCRemoteSwiftPackageReference "swift-sdk" */,
+			);
 			productRefGroup = AA48F29C21CC0CA50032EC2C /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -1303,13 +1320,9 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-LookinClient/Pods-LookinClient-resources-${CONFIGURATION}-input-files.xcfilelist",
 			);
-			inputPaths = (
-			);
 			name = "[CP] Copy Pods Resources";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-LookinClient/Pods-LookinClient-resources-${CONFIGURATION}-output-files.xcfilelist",
-			);
-			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -1324,13 +1337,9 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-LookinClient/Pods-LookinClient-frameworks-${CONFIGURATION}-input-files.xcfilelist",
 			);
-			inputPaths = (
-			);
 			name = "[CP] Embed Pods Frameworks";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-LookinClient/Pods-LookinClient-frameworks-${CONFIGURATION}-output-files.xcfilelist",
-			);
-			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -1511,6 +1520,7 @@
 				AAA8C14F21CC17680017A345 /* LKMenuPopoverAppsListController.m in Sources */,
 				AAD2BED1226B280B00E83D01 /* LKTableRowView.m in Sources */,
 				AA05CCD4221ED5CA0086CDD1 /* LKDashboardAttributeNumberInputView.m in Sources */,
+				3E15839F8C35B47534DB75D8 /* LKMCPManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1687,7 +1697,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 11.0;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
 				MARKETING_VERSION = 1.0.7;
 				PRODUCT_BUNDLE_IDENTIFIER = hughkli.Lookin.sbj;
 				PRODUCT_NAME = Lookin;
@@ -1728,7 +1738,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 11.0;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
 				MARKETING_VERSION = 1.0.7;
 				PRODUCT_BUNDLE_IDENTIFIER = hughkli.Lookin.sbj;
 				PRODUCT_NAME = Lookin;
@@ -1760,6 +1770,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		9FE42B8FDBA143FCA0E7B5AA /* XCRemoteSwiftPackageReference "swift-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/modelcontextprotocol/swift-sdk.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.11.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		25BC62FA8F0547C28730EED9 /* MCP */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9FE42B8FDBA143FCA0E7B5AA /* XCRemoteSwiftPackageReference "swift-sdk" */;
+			productName = MCP;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = AA48F29321CC0CA50032EC2C /* Project object */;
 }

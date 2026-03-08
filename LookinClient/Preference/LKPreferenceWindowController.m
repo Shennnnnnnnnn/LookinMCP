@@ -13,17 +13,22 @@
 @implementation LKPreferenceWindowController
 
 - (instancetype)init {
-    LKWindow *window = [[LKWindow alloc] initWithContentRect:NSMakeRect(0, 0, 600, 380) styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskMiniaturizable backing:NSBackingStoreBuffered defer:YES];
-    window.movableByWindowBackground = YES;
-    window.title = NSLocalizedString(@"Preferences", nil);
-    [window center];
-    
-    if (self = [self initWithWindow:window]) {
-        LKPreferenceViewController *vc = [LKPreferenceViewController new];
-        window.contentView = vc.view;
-        self.contentViewController = vc;
-    }
-    return self;
+  LKWindow *window = [[LKWindow alloc]
+      initWithContentRect:NSMakeRect(0, 0, 750, 680)
+                styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+                          NSWindowStyleMaskMiniaturizable
+                  backing:NSBackingStoreBuffered
+                    defer:YES];
+  window.movableByWindowBackground = YES;
+  window.title = NSLocalizedString(@"Preferences", nil);
+  [window center];
+
+  if (self = [self initWithWindow:window]) {
+    LKPreferenceViewController *vc = [LKPreferenceViewController new];
+    window.contentView = vc.view;
+    self.contentViewController = vc;
+  }
+  return self;
 }
 
 @end

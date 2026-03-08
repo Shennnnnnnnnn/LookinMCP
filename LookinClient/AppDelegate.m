@@ -13,6 +13,7 @@
 #import "LKMCPHTTPServer.h"
 #import "LKNavigationManager.h"
 #import "LKPreferenceManager.h"
+#import "Lookin-Swift.h"
 #import "LookinDashboardBlueprint.h"
 #import "LookinDocument.h"
 #import "NSString+Score.h"
@@ -68,6 +69,7 @@
 
   // 启动 MCP HTTP 服务器
   [[LKMCPHTTPServer sharedInstance] startServerOnPort:10086];
+  [[LKMCPManager sharedManager] startServerIfNeeded];
 
 #ifdef DEBUG
   [self _runTests];
@@ -92,6 +94,7 @@
     (NSApplication *)sender {
   // 停止 MCP HTTP 服务器
   [[LKMCPHTTPServer sharedInstance] stopServer];
+  [[LKMCPManager sharedManager] stopServer];
 
   // 清理打开 UIImageView 的图片时创建的临时文件
   NSArray<NSString *> *tempImageFilesToDelete =
@@ -115,7 +118,7 @@
 
 - (NSString *)resolveAppCenterKey {
   NSString *bundleID = [[NSBundle mainBundle] bundleIdentifier];
-    return @"fce2565c-518c-4851-be73-fa8317dd1590";
+  return @"fce2565c-518c-4851-be73-fa8317dd1590";
 }
 
 /// 一些单元测试

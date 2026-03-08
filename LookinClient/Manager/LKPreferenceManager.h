@@ -6,10 +6,10 @@
 //  https://lookin.work
 //
 
-#import <Foundation/Foundation.h>
-#import "LookinAttributesGroup.h"
 #import "LKExportManager.h"
+#import "LookinAttributesGroup.h"
 #import "LookinMsgAttribute.h"
+#import <Foundation/Foundation.h>
 
 extern NSString *const LKWindowSizeName_Dynamic;
 extern NSString *const LKWindowSizeName_Static;
@@ -18,27 +18,26 @@ extern NSString *const LKWindowSizeName_Static;
 extern const CGFloat LKInitialPreviewScale;
 
 typedef NS_ENUM(NSInteger, LookinPreferredAppeanranceType) {
-    LookinPreferredAppeanranceTypeDark,
-    LookinPreferredAppeanranceTypeLight,
-    LookinPreferredAppeanranceTypeSystem
+  LookinPreferredAppeanranceTypeDark,
+  LookinPreferredAppeanranceTypeLight,
+  LookinPreferredAppeanranceTypeSystem
 };
 
-
 typedef NS_ENUM(NSInteger, LookinDoubleClickBehavior) {
-    LookinDoubleClickBehaviorCollapse,
-    LookinDoubleClickBehaviorFocus
+  LookinDoubleClickBehaviorCollapse,
+  LookinDoubleClickBehaviorFocus
 };
 
 typedef NS_ENUM(NSInteger, LookinPreferredCallStackType) {
-    LookinPreferredCallStackTypeDefault,    // 格式化 + 简略
-    LookinPreferredCallStackTypeFormattedCompletely, // 格式化 + 完整
-    LookinPreferredCallStackTypeRaw    // 原始堆栈
+  LookinPreferredCallStackTypeDefault,             // 格式化 + 简略
+  LookinPreferredCallStackTypeFormattedCompletely, // 格式化 + 完整
+  LookinPreferredCallStackTypeRaw                  // 原始堆栈
 };
 
 typedef NS_ENUM(NSInteger, LookinMeasureState) {
-    LookinMeasureState_no,    // 没有处于测距模式
-    LookinMeasureState_unlocked, // 处于测距模式，但未锁定，此时松开手指就会导致退出测距模式
-    LookinMeasureState_locked    // 处于测距模式，且锁定，此时松开手指不会退出测距模式
+  LookinMeasureState_no, // 没有处于测距模式
+  LookinMeasureState_unlocked, // 处于测距模式，但未锁定，此时松开手指就会导致退出测距模式
+  LookinMeasureState_locked // 处于测距模式，且锁定，此时松开手指不会退出测距模式
 };
 
 @interface LKPreferenceManager : NSObject
@@ -55,6 +54,10 @@ typedef NS_ENUM(NSInteger, LookinMeasureState) {
 
 /// 有效值为 0 ～ 4
 @property(nonatomic, assign) NSInteger expansionIndex;
+
+@property(nonatomic, assign) BOOL mcpServerEnabled;
+
+@property(nonatomic, assign) NSInteger mcpServerPort;
 
 @property(nonatomic, strong, readonly) LookinBOOLMsgAttribute *showOutline;
 
@@ -74,7 +77,8 @@ typedef NS_ENUM(NSInteger, LookinMeasureState) {
 @property(nonatomic, assign) BOOL syncConsoleTarget;
 
 // 被折叠的 AttrGroup
-@property(nonatomic, copy) NSArray<LookinAttrGroupIdentifier> *collapsedAttrGroups;
+@property(nonatomic, copy)
+    NSArray<LookinAttrGroupIdentifier> *collapsedAttrGroups;
 
 @property(nonatomic, assign) CGFloat preferredExportCompression;
 
@@ -82,7 +86,8 @@ typedef NS_ENUM(NSInteger, LookinMeasureState) {
 
 @property(nonatomic, strong, readonly) LookinBOOLMsgAttribute *fastMode;
 
-/// 上次接收到 iOS app 里传过来的 color config 和 collapsedClasses 信息的时间，用来统计
+/// 上次接收到 iOS app 里传过来的 color config 和 collapsedClasses
+/// 信息的时间，用来统计
 @property(nonatomic, assign) NSTimeInterval receivingConfigTime_Color;
 @property(nonatomic, assign) NSTimeInterval receivingConfigTime_Class;
 
@@ -99,7 +104,8 @@ extern NSString *const NotificationName_DidChangeSectionShowing;
 
 @property(nonatomic, assign) LookinPreferredCallStackType callStackType;
 
-@property(nonatomic, strong, readonly) LookinIntegerMsgAttribute *previewDimension;
+@property(nonatomic, strong, readonly)
+    LookinIntegerMsgAttribute *previewDimension;
 
 @property(nonatomic, strong, readonly) LookinDoubleMsgAttribute *previewScale;
 
@@ -109,7 +115,8 @@ extern NSString *const NotificationName_DidChangeSectionShowing;
 /// 是否用户正在按住 cmd 键而处于快速选择模式
 @property(nonatomic, strong, readonly) LookinBOOLMsgAttribute *isQuickSelecting;
 
-/// 如果之前没弹过“双击图层时你希望发生什么？”这个框，则这个方法会弹框且返回 YES。否则该方法什么都不会做且返回 NO
+/// 如果之前没弹过“双击图层时你希望发生什么？”这个框，则这个方法会弹框且返回
+/// YES。否则该方法什么都不会做且返回 NO
 + (BOOL)popupToAskDoubleClickBehaviorIfNeededWithWindow:(NSWindow *)window;
 
 - (void)reset;
