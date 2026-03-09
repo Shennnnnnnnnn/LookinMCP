@@ -25,6 +25,27 @@
 #import "LookinObject+LookinClient.h"
 #import "LookinObject.h"
 
+// Forward declaration for constraint serialization to avoid header search path
+// issues
+@interface LookinAutoLayoutConstraint : NSObject
+@property(nonatomic, strong) id firstItem;
+@property(nonatomic, assign) NSInteger firstItemType;
+@property(nonatomic, assign) NSInteger firstAttribute;
+@property(nonatomic, assign) NSInteger relation;
+@property(nonatomic, strong) id secondItem;
+@property(nonatomic, assign) NSInteger secondItemType;
+@property(nonatomic, assign) NSInteger secondAttribute;
+@property(nonatomic, assign) double constant;
+@property(nonatomic, assign) double multiplier;
+@property(nonatomic, assign) float priority;
+@property(nonatomic, assign) BOOL effective;
++ (NSString *)descriptionWithItemObject:(id)object
+                                   type:(NSInteger)type
+                               detailed:(BOOL)detailed;
++ (NSString *)descriptionWithAttributeInt:(NSInteger)attribute;
++ (NSString *)symbolWithRelation:(NSInteger)relation;
+@end
+
 @interface LKMCPBridge ()
 
 @end
@@ -47,7 +68,8 @@
 #pragma mark - Data Export
 
 - (NSString *)exportHierarchyWithMaxDepth:(NSInteger)maxDepth
-                              filterClass:(nullable NSString *)filterClass {
+                              filterClass:(nullable NSString *)filterClass
+                                elementID:(nullable NSString *)elementID {
   LKStaticHierarchyDataSource *dataSource =
       [LKStaticHierarchyDataSource sharedInstance];
   LookinHierarchyInfo *hierarchyInfo = dataSource.rawHierarchyInfo;
@@ -60,19 +82,38 @@
   result[@"status"] = @"success";
   result[@"message"] = @"视图层级获取成功";
 
-  // 导出根元素 - displayItems 是数组
-  if (hierarchyInfo.displayItems && hierarchyInfo.displayItems.count > 0) {
-    NSMutableArray *hierarchyArray = [NSMutableArray array];
-    for (LookinDisplayItem *item in hierarchyInfo.displayItems) {
-      NSDictionary *itemDict = [self exportDisplayItem:item
+  if (elementID && elementID.length > 0) {
+    LookinDisplayItem *targetItem = [self findDisplayItemWithOID:elementID];
+    if (targetItem) {
+      NSDictionary *itemDict = [self exportDisplayItem:targetItem
                                               maxDepth:maxDepth
                                           currentDepth:0
                                            filterClass:filterClass];
       if (itemDict) {
-        [hierarchyArray addObject:itemDict];
+        result[@"hierarchy"] = @[ itemDict ];
+      } else {
+        result[@"hierarchy"] = @[];
       }
+    } else {
+      return
+          [self errorJSON:[NSString stringWithFormat:@"未找到 OID 为 %@ 的元素",
+                                                     elementID]];
     }
-    result[@"hierarchy"] = hierarchyArray;
+  } else {
+    // 导出所有根元素 - displayItems 是数组
+    if (hierarchyInfo.displayItems && hierarchyInfo.displayItems.count > 0) {
+      NSMutableArray *hierarchyArray = [NSMutableArray array];
+      for (LookinDisplayItem *item in hierarchyInfo.displayItems) {
+        NSDictionary *itemDict = [self exportDisplayItem:item
+                                                maxDepth:maxDepth
+                                            currentDepth:0
+                                             filterClass:filterClass];
+        if (itemDict) {
+          [hierarchyArray addObject:itemDict];
+        }
+      }
+      result[@"hierarchy"] = hierarchyArray;
+    }
   }
 
   return [self jsonStringFromDictionary:result];
@@ -190,47 +231,31 @@
   NSMutableDictionary *details = [NSMutableDictionary dictionary];
 
   // 基本信息
-  details[@"className"] = item.className ?: @"";
   details[@"hasViewObject"] = @(item.viewObject != nil);
   NSString *title = [item title];
   if (title) {
-    details[@"title"] = title;
+    details[@"className"] = title;
   }
 
   NSString *textContent = [self getTextContentFromItem:item];
   if (textContent) {
     details[@"text"] = textContent;
-  } else {
-    details[@"debug_text_extraction"] = @"Failed to extract text";
   }
 
-  // Frame 和 Bounds
-  if (!CGRectIsNull(item.frame)) {
-    details[@"frame"] = @{
-      @"x" : @(item.frame.origin.x),
-      @"y" : @(item.frame.origin.y),
-      @"width" : @(item.frame.size.width),
-      @"height" : @(item.frame.size.height)
-    };
-  }
-
-  if (!CGRectIsNull(item.bounds)) {
-    details[@"bounds"] = @{
-      @"x" : @(item.bounds.origin.x),
-      @"y" : @(item.bounds.origin.y),
-      @"width" : @(item.bounds.size.width),
-      @"height" : @(item.bounds.size.height)
+  // 绝对坐标和基本尺寸
+  CGRect absoluteFrame = [self calculateAbsoluteFrameForItem:item];
+  if (!CGRectIsNull(absoluteFrame)) {
+    details[@"frame"] =
+        @{@"x" : @(absoluteFrame.origin.x), @"y" : @(absoluteFrame.origin.y)};
+    details[@"size"] = @{
+      @"width" : @(absoluteFrame.size.width),
+      @"height" : @(absoluteFrame.size.height)
     };
   }
 
   // 可见性和交互
   details[@"isHidden"] = @(item.isHidden);
   details[@"alpha"] = @(item.alpha);
-
-  // 背景色
-  if (item.backgroundColor) {
-    details[@"backgroundColor"] = [self serializeColor:item.backgroundColor];
-  }
 
   // 层级关系
   if (item.superItem) {
@@ -264,6 +289,21 @@
   // 获取详细属性（文案、字体、颜色、圆角等）
   if (item.attributesGroupList && item.attributesGroupList.count > 0) {
     NSMutableDictionary *attributes = [NSMutableDictionary dictionary];
+    NSMutableArray *constraintsList = [NSMutableArray array];
+
+    // 定义我们需要关注的UI属性关键字
+    NSArray *colorKeywords =
+        @[ @"color", @"颜色", @"tint", @"background", @"shadow" ];
+    NSArray *fontKeywords = @[ @"font", @"字体" ];
+    NSArray *radiusKeywords = @[ @"radius", @"圆角" ];
+    NSArray *borderKeywords = @[ @"border", @"边框" ];
+    NSArray *imageKeywords = @[ @"image", @"图片", @"icon" ];
+
+    // 如果有自带背景色
+    if (item.backgroundColor) {
+      attributes[@"backgroundColor"] =
+          [self serializeColor:item.backgroundColor];
+    }
 
     for (LookinAttributesGroup *group in item.attributesGroupList) {
       if (!group.attrSections || group.attrSections.count == 0) {
@@ -281,10 +321,137 @@
             continue;
           }
 
-          // 序列化属性值
-          id serializedValue = [self serializeAttributeValue:attr];
-          if (serializedValue) {
-            attributes[key] = serializedValue;
+          NSString *lowerKey = [key lowercaseString];
+          NSString *lowerTitle = [attr.displayTitle lowercaseString] ?: @"";
+
+          BOOL shouldInclude = NO;
+          NSString *mappedKey = nil;
+
+          // 检查是否在我们关心的属性类别里
+          if ([self string:lowerKey containsAny:colorKeywords] ||
+              [self string:lowerTitle containsAny:colorKeywords] ||
+              [lowerKey isEqualToString:@"vl_b_c"]) {
+            shouldInclude = YES;
+            mappedKey =
+                [key containsString:@"Color"] ||
+                        [lowerKey isEqualToString:@"vl_b_c"]
+                    ? @"borderColor" // Since vl_b_c ==
+                                     // LookinAttr_ViewLayer_Border_Color
+                    : [NSString stringWithFormat:@"%@Color", key];
+            // Fix for background color and text colors
+            if ([lowerKey isEqualToString:@"vl_b_b"]) {
+              mappedKey = @"backgroundColor";
+            } else if ([lowerKey isEqualToString:@"lb_t_c"] ||
+                       [lowerKey isEqualToString:@"te_t_c"] ||
+                       [lowerKey isEqualToString:@"tf_t_c"]) {
+              mappedKey = @"textColor";
+            } else if ([lowerKey isEqualToString:@"vl_t_c"]) {
+              mappedKey = @"tintColor";
+            }
+          } else if ([self string:lowerKey containsAny:fontKeywords] ||
+                     [self string:lowerTitle containsAny:fontKeywords] ||
+                     [lowerKey isEqualToString:@"lb_f_n"] ||
+                     [lowerKey isEqualToString:@"te_f_n"] ||
+                     [lowerKey isEqualToString:@"tf_f_n"]) {
+            shouldInclude = YES;
+            mappedKey = @"fontName";
+          } else if ([lowerKey isEqualToString:@"lb_f_s"] ||
+                     [lowerKey isEqualToString:@"te_f_s"] ||
+                     [lowerKey isEqualToString:@"tf_f_s"]) {
+            shouldInclude = YES;
+            mappedKey = @"fontSize";
+          } else if ([self string:lowerKey containsAny:radiusKeywords] ||
+                     [self string:lowerTitle containsAny:radiusKeywords] ||
+                     [lowerKey isEqualToString:@"vl_c_r"]) {
+            shouldInclude = YES;
+            mappedKey = @"cornerRadius";
+          } else if ([self string:lowerKey containsAny:borderKeywords] ||
+                     [self string:lowerTitle containsAny:borderKeywords] ||
+                     [lowerKey isEqualToString:@"vl_b_w"]) {
+            shouldInclude = YES;
+            mappedKey = ([key containsString:@"Width"] ||
+                         [lowerKey isEqualToString:@"vl_b_w"])
+                            ? @"borderWidth"
+                            : @"borderProperty";
+          } else if ([self string:lowerKey containsAny:imageKeywords] ||
+                     [self string:lowerTitle containsAny:imageKeywords] ||
+                     [lowerKey isEqualToString:@"iv_n_n"]) {
+            shouldInclude = YES;
+            mappedKey = @"imageName";
+          } else if ([lowerKey isEqualToString:@"vl_i_m"] ||
+                     [lowerKey isEqualToString:@"vl_c_m"] ||
+                     [lowerKey isEqualToString:@"lb_n_n"] ||
+                     [lowerKey isEqualToString:@"lb_a_a"] ||
+                     [lowerKey isEqualToString:@"te_a_a"] ||
+                     [lowerKey isEqualToString:@"tf_a_a"] ||
+                     [lowerKey isEqualToString:@"lb_b_m"] ||
+                     [lowerKey isEqualToString:@"bt_c_i"] ||
+                     [lowerKey isEqualToString:@"bt_t_i"] ||
+                     [lowerKey isEqualToString:@"bt_i_i"] ||
+                     [lowerKey isEqualToString:@"sv_c_i"] ||
+                     [lowerKey isEqualToString:@"sv_o_o"] ||
+                     [lowerKey isEqualToString:@"sv_c_s"] ||
+                     [lowerKey isEqualToString:@"sv_s_s"] ||
+                     [lowerKey isEqualToString:@"sv_s_p"] ||
+                     [lowerKey isEqualToString:@"usv_axis_axis"] ||
+                     [lowerKey isEqualToString:@"usv_dis_dis"] ||
+                     [lowerKey isEqualToString:@"usv_ali_ali"] ||
+                     [lowerKey isEqualToString:@"usv_spa_spa"]) {
+            shouldInclude = YES;
+
+            if ([lowerKey isEqualToString:@"vl_i_m"])
+              mappedKey = @"masksToBounds";
+            else if ([lowerKey isEqualToString:@"vl_c_m"])
+              mappedKey = @"contentMode";
+            else if ([lowerKey isEqualToString:@"lb_n_n"])
+              mappedKey = @"numberOfLines";
+            else if ([lowerKey isEqualToString:@"lb_a_a"] ||
+                     [lowerKey isEqualToString:@"te_a_a"] ||
+                     [lowerKey isEqualToString:@"tf_a_a"])
+              mappedKey = @"textAlignment";
+            else if ([lowerKey isEqualToString:@"lb_b_m"])
+              mappedKey = @"lineBreakMode";
+            else if ([lowerKey isEqualToString:@"bt_c_i"])
+              mappedKey = @"contentEdgeInsets";
+            else if ([lowerKey isEqualToString:@"bt_t_i"])
+              mappedKey = @"titleEdgeInsets";
+            else if ([lowerKey isEqualToString:@"bt_i_i"])
+              mappedKey = @"imageEdgeInsets";
+            else if ([lowerKey isEqualToString:@"sv_c_i"])
+              mappedKey = @"contentInset";
+            else if ([lowerKey isEqualToString:@"sv_o_o"])
+              mappedKey = @"contentOffset";
+            else if ([lowerKey isEqualToString:@"sv_c_s"])
+              mappedKey = @"contentSize";
+            else if ([lowerKey isEqualToString:@"sv_s_s"])
+              mappedKey = @"isScrollEnabled";
+            else if ([lowerKey isEqualToString:@"sv_s_p"])
+              mappedKey = @"isPagingEnabled";
+            else if ([lowerKey isEqualToString:@"usv_axis_axis"])
+              mappedKey = @"axis";
+            else if ([lowerKey isEqualToString:@"usv_dis_dis"])
+              mappedKey = @"distribution";
+            else if ([lowerKey isEqualToString:@"usv_ali_ali"])
+              mappedKey = @"alignment";
+            else if ([lowerKey isEqualToString:@"usv_spa_spa"])
+              mappedKey = @"spacing";
+          }
+
+          if ([section.identifier isEqualToString:@"a_c"]) {
+            // AutoLayout 约束
+            id serializedValue = [self serializeAttributeValue:attr];
+            if (serializedValue) {
+              [constraintsList addObject:@{
+                @"title" : attr.displayTitle ?: @"",
+                @"value" : serializedValue
+              }];
+            }
+          } else if (shouldInclude) {
+            // 序列化属性值
+            id serializedValue = [self serializeAttributeValue:attr];
+            if (serializedValue) {
+              attributes[mappedKey ?: key] = serializedValue;
+            }
           }
         }
       }
@@ -293,11 +460,51 @@
     if (attributes.count > 0) {
       details[@"attributes"] = attributes;
     }
+    if (constraintsList.count > 0) {
+      details[@"constraints"] = constraintsList;
+    }
   }
 
   result[@"details"] = details;
 
   return [self jsonStringFromDictionary:result];
+}
+
+- (BOOL)string:(NSString *)string containsAny:(NSArray<NSString *> *)keywords {
+  for (NSString *keyword in keywords) {
+    if ([string containsString:keyword]) {
+      return YES;
+    }
+  }
+  return NO;
+}
+
+- (CGRect)calculateAbsoluteFrameForItem:(LookinDisplayItem *)item {
+  if (!item || CGRectIsNull(item.frame)) {
+    return CGRectNull;
+  }
+
+  CGRect rect = item.frame;
+  LookinDisplayItem *superItem = item.superItem;
+
+  // 不断向上叠加 origin 的 x 和 y，跳过 bounds/scrollView
+  // offset的严谨处理（这里做个近似的绝对坐标用于简化给模型的表示）
+  while (superItem) {
+    if (!CGRectIsNull(superItem.frame)) {
+      rect.origin.x += superItem.frame.origin.x;
+      rect.origin.y += superItem.frame.origin.y;
+
+      // 如果是 scrollView 可能还需要减去 bounds.origin
+      // 不过对于分析布局结构来说，近似的绝对值位置足够了。
+      if (!CGRectIsNull(superItem.bounds)) {
+        rect.origin.x -= superItem.bounds.origin.x;
+        rect.origin.y -= superItem.bounds.origin.y;
+      }
+    }
+    superItem = superItem.superItem;
+  }
+
+  return rect;
 }
 
 - (NSString *)calculateRelativePositionBetween:(NSString *)oid1
@@ -309,8 +516,12 @@
     return [self errorJSON:@"未找到指定的元素"];
   }
 
-  CGRect frame1 = item1.frame;
-  CGRect frame2 = item2.frame;
+  CGRect frame1 = [self calculateAbsoluteFrameForItem:item1];
+  CGRect frame2 = [self calculateAbsoluteFrameForItem:item2];
+
+  if (CGRectIsNull(frame1) || CGRectIsNull(frame2)) {
+    return [self errorJSON:@"无法获取元素的坐标信息"];
+  }
 
   NSMutableDictionary *result = [NSMutableDictionary dictionary];
   result[@"status"] = @"success";
@@ -319,32 +530,51 @@
 
   NSMutableDictionary *relationship = [NSMutableDictionary dictionary];
 
+  // 记录每个元素的绝对坐标边界，以便模型自行判断
+  relationship[@"element_1_bounds"] = @{
+    @"left" : @(CGRectGetMinX(frame1)),
+    @"right" : @(CGRectGetMaxX(frame1)),
+    @"top" : @(CGRectGetMinY(frame1)),
+    @"bottom" : @(CGRectGetMaxY(frame1)),
+    @"width" : @(CGRectGetWidth(frame1)),
+    @"height" : @(CGRectGetHeight(frame1))
+  };
+
+  relationship[@"element_2_bounds"] = @{
+    @"left" : @(CGRectGetMinX(frame2)),
+    @"right" : @(CGRectGetMaxX(frame2)),
+    @"top" : @(CGRectGetMinY(frame2)),
+    @"bottom" : @(CGRectGetMaxY(frame2)),
+    @"width" : @(CGRectGetWidth(frame2)),
+    @"height" : @(CGRectGetHeight(frame2))
+  };
+
   // 水平关系
   if (CGRectGetMaxX(frame1) <= CGRectGetMinX(frame2)) {
     relationship[@"horizontal"] = @"element_1 在 element_2 左侧";
-    relationship[@"horizontal_distance"] =
+    relationship[@"horizontal_distance_point"] =
         @(CGRectGetMinX(frame2) - CGRectGetMaxX(frame1));
   } else if (CGRectGetMinX(frame1) >= CGRectGetMaxX(frame2)) {
     relationship[@"horizontal"] = @"element_1 在 element_2 右侧";
-    relationship[@"horizontal_distance"] =
+    relationship[@"horizontal_distance_point"] =
         @(CGRectGetMinX(frame1) - CGRectGetMaxX(frame2));
   } else {
-    relationship[@"horizontal"] = @"element_1 与 element_2 水平重叠";
-    relationship[@"horizontal_distance"] = @0;
+    relationship[@"horizontal"] = @"element_1 与 element_2 水平存在交集";
+    relationship[@"horizontal_distance_point"] = @0;
   }
 
   // 垂直关系
   if (CGRectGetMaxY(frame1) <= CGRectGetMinY(frame2)) {
     relationship[@"vertical"] = @"element_1 在 element_2 上方";
-    relationship[@"vertical_distance"] =
+    relationship[@"vertical_distance_point"] =
         @(CGRectGetMinY(frame2) - CGRectGetMaxY(frame1));
   } else if (CGRectGetMinY(frame1) >= CGRectGetMaxY(frame2)) {
     relationship[@"vertical"] = @"element_1 在 element_2 下方";
-    relationship[@"vertical_distance"] =
+    relationship[@"vertical_distance_point"] =
         @(CGRectGetMinY(frame1) - CGRectGetMaxY(frame2));
   } else {
-    relationship[@"vertical"] = @"element_1 与 element_2 垂直重叠";
-    relationship[@"vertical_distance"] = @0;
+    relationship[@"vertical"] = @"element_1 与 element_2 垂直存在交集";
+    relationship[@"vertical_distance_point"] = @0;
   }
 
   // 是否重叠
@@ -352,13 +582,20 @@
   relationship[@"overlap"] = @(overlap);
 
   if (overlap) {
-    CGRect intersection = CGRectIntersection(frame1, frame2);
-    relationship[@"intersection"] = @{
-      @"x" : @(intersection.origin.x),
-      @"y" : @(intersection.origin.y),
-      @"width" : @(intersection.size.width),
-      @"height" : @(intersection.size.height)
-    };
+    // 面积覆盖判断（是否包含）
+    if (CGRectContainsRect(frame1, frame2)) {
+      relationship[@"containment"] = @"element_1 完全包含 element_2";
+    } else if (CGRectContainsRect(frame2, frame1)) {
+      relationship[@"containment"] = @"element_2 完全包含 element_1";
+    } else {
+      relationship[@"containment"] = @"部分重叠";
+
+      CGRect intersection = CGRectIntersection(frame1, frame2);
+      relationship[@"intersection_size"] = @{
+        @"width" : @(intersection.size.width),
+        @"height" : @(intersection.size.height)
+      };
+    }
   }
 
   result[@"relationship"] = relationship;
@@ -954,8 +1191,94 @@
   }
 #endif
 
+  // 数组类型 (例如 border color 返回的通常是包含 NSColor/LookinColor 的
+  // NSArray)
+  if ([attr.value isKindOfClass:[NSArray class]]) {
+    NSMutableArray *serializedArray = [NSMutableArray array];
+    for (id item in (NSArray *)attr.value) {
+      if ([item isKindOfClass:[LookinColor class]]) {
+        [serializedArray addObject:[self serializeColor:(LookinColor *)item]];
+      } else if ([item
+                     isKindOfClass:NSClassFromString(@"LookinAutoLayoutConstraint")]) {
+        id serialized = [self serializeConstraint:item];
+        if (serialized) {
+          [serializedArray addObject:serialized];
+        }
+      } else if ([item isKindOfClass:[NSString class]] ||
+                 [item isKindOfClass:[NSNumber class]]) {
+        [serializedArray addObject:item];
+      } else {
+        [serializedArray addObject:[item description]];
+      }
+    }
+    // 如果数组只有一个元素，直接返回该元素以简化 JSON 结构
+    if (serializedArray.count == 1) {
+      return serializedArray.firstObject;
+    }
+    return serializedArray;
+  }
+
+  // 约束类型
+  if ([attr.value
+          isKindOfClass:NSClassFromString(@"LookinAutoLayoutConstraint")]) {
+    return [self serializeConstraint:attr.value];
+  }
+
   // 默认: 尝试转换为字符串
   return [attr.value description];
+}
+
+- (id)serializeConstraint:(id)value {
+  if (![value isKindOfClass:NSClassFromString(@"LookinAutoLayoutConstraint")]) {
+    return [value description];
+  }
+  LookinAutoLayoutConstraint *constraint = (LookinAutoLayoutConstraint *)value;
+  // 过滤掉不生效的约束
+  if (!constraint.effective) {
+    return nil;
+  }
+  // 使用 LookinClient 类别提供的方法来生成可读字符串
+  // 实现类似于 LKDashboardAttributeConstraintsItemControl.m 中的
+  // _stringFromConstraint:
+  NSString *firstItemDesc = [LookinAutoLayoutConstraint
+      descriptionWithItemObject:constraint.firstItem
+                           type:constraint.firstItemType
+                       detailed:NO];
+  NSString *firstAttrDesc = [LookinAutoLayoutConstraint
+      descriptionWithAttributeInt:constraint.firstAttribute];
+  NSString *relationSymbol =
+      [LookinAutoLayoutConstraint symbolWithRelation:constraint.relation];
+
+  NSString *baseDesc =
+      [NSString stringWithFormat:@"%@.%@ %@ ", firstItemDesc, firstAttrDesc,
+                                 relationSymbol];
+  if (constraint.secondItem) {
+    NSString *secondItemDesc = [LookinAutoLayoutConstraint
+        descriptionWithItemObject:constraint.secondItem
+                             type:constraint.secondItemType
+                         detailed:NO];
+    NSString *secondAttrDesc = [LookinAutoLayoutConstraint
+        descriptionWithAttributeInt:constraint.secondAttribute];
+    baseDesc = [baseDesc
+        stringByAppendingFormat:@"%@.%@", secondItemDesc, secondAttrDesc];
+  } else {
+    baseDesc = [baseDesc stringByAppendingFormat:@"%g", constraint.constant];
+  }
+
+  if (constraint.multiplier != 1.0) {
+    baseDesc =
+        [baseDesc stringByAppendingFormat:@" * %g", constraint.multiplier];
+  }
+  if (constraint.constant != 0 && constraint.secondItem) {
+    baseDesc = [baseDesc
+        stringByAppendingFormat:@" %@ %g",
+                                (constraint.constant > 0 ? @"+" : @"-"),
+                                ABS(constraint.constant)];
+  }
+  if (constraint.priority != 1000) {
+    baseDesc = [baseDesc stringByAppendingFormat:@" @%g", constraint.priority];
+  }
+  return baseDesc;
 }
 
 @end

@@ -24,10 +24,12 @@ NS_ASSUME_NONNULL_BEGIN
  * 导出当前的视图层级结构为 JSON
  * @param maxDepth 最大深度，-1 表示无限制
  * @param filterClass 可选的类名过滤器
+ * @param elementID 目标元素的 OID（可选，如果提供则只导出该节点及其子节点）
  * @return JSON 字符串
  */
 - (NSString *)exportHierarchyWithMaxDepth:(NSInteger)maxDepth
-                              filterClass:(nullable NSString *)filterClass;
+                              filterClass:(nullable NSString *)filterClass
+                                elementID:(nullable NSString *)elementID;
 
 /**
  * 导出指定元素的详细信息

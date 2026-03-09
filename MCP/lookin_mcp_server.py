@@ -197,11 +197,14 @@ async def get_hierarchy(arguments: dict) -> list[TextContent]:
     """获取视图层级结构"""
     max_depth = arguments.get("max_depth", -1)
     filter_class = arguments.get("filter_class")
+    element_id = arguments.get("element_id")
     
     try:
         params = {"max_depth": max_depth}
         if filter_class:
             params["filter_class"] = filter_class
+        if element_id:
+            params["element_id"] = element_id
             
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{LOOKIN_SERVER_URL}/api/hierarchy", params=params) as resp:

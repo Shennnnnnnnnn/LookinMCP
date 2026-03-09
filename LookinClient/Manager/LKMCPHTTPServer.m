@@ -52,10 +52,12 @@
                NSInteger maxDepth =
                    [request.query[@"max_depth"] integerValue] ?: -1;
                NSString *filterClass = request.query[@"filter_class"];
+               NSString *elementID = request.query[@"element_id"];
 
                NSString *jsonString =
                    [bridge exportHierarchyWithMaxDepth:maxDepth
-                                           filterClass:filterClass];
+                                           filterClass:filterClass
+                                             elementID:elementID];
 
                return [GCDWebServerDataResponse
                    responseWithJSONObject:[self parseJSON:jsonString]];
