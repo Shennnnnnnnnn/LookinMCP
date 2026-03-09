@@ -291,6 +291,28 @@ public class LKMCPManager: NSObject {
                         ]),
                         "required": .array([.string("element_id")])
                     ])
+                ),
+                Tool(
+                    name: "export_screenshot",
+                    description: "将指定元素及其所有子元素的层级渲染截图导出为 PNG 图片并保存到本地目录。与 save_image 不同，此功能不仅限于 UIImageView，可对任何类型的视图进行截图导出。如果未配置路径，将默认保存在当前目录下。",
+                    inputSchema: .object([
+                        "type": .string("object"),
+                        "properties": .object([
+                            "element_id": .object([
+                                "type": .string("string"),
+                                "description": .string("元素的唯一标识符（oid）")
+                            ]),
+                            "directory": .object([
+                                "type": .string("string"),
+                                "description": .string("保存图片的目录路径，默认为当前工作目录下的 screenshots 文件夹")
+                            ]),
+                            "filename": .object([
+                                "type": .string("string"),
+                                "description": .string("保存的文件名（包含 .png），默认为 screenshot_{oid}.png")
+                            ])
+                        ]),
+                        "required": .array([.string("element_id")])
+                    ])
                 )
             ]
             return .init(tools: tools)
@@ -365,6 +387,48 @@ public class LKMCPManager: NSObject {
                             let responseObj = [
                                 "status": "success",
                                 "message": "Image saved to \(fileURL.path)",
+                                "path": fileURL.path
+                            ]
+                            let responseData = try JSONSerialization.data(withJSONObject: responseObj, options: .prettyPrinted)
+                            let text = String(data: responseData, encoding: .utf8) ?? ""
+                            return .init(content: [.text(text)], isError: false)
+                        } else {
+                            let msg = (json?["message"] as? String) ?? "Unknown error"
+                            return .init(content: [.text(msg)], isError: true)
+                        }
+                    } catch {
+                        return .init(content: [.text("Parse error: \(error)")], isError: true)
+                    }
+                case .failure(let error):
+                    return .init(content: [.text("Fetch error: \(error)")], isError: true)
+                }
+                
+            case "export_screenshot":
+                guard let elementId = params.arguments?["element_id"]?.stringValue else {
+                    return .init(content: [.text("Missing element_id")], isError: true)
+                }
+                let directory = params.arguments?["directory"]?.stringValue ?? "screenshots"
+                let filename = params.arguments?["filename"]?.stringValue ?? "screenshot_\(elementId).png"
+                
+                // Fetch screenshot base64
+                let result = await self.fetchLocalHTTP(path: "/api/element/\(elementId)/screenshot", queryItems: [])
+                
+                switch result {
+                case .success(let data):
+                    do {
+                        let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
+                        if let status = json?["status"] as? String, status == "success",
+                           let base64Data = json?["data"] as? String,
+                           let imageData = Data(base64Encoded: base64Data) {
+                            
+                            let dirURL = URL(fileURLWithPath: directory)
+                            try FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true, attributes: nil)
+                            let fileURL = dirURL.appendingPathComponent(filename)
+                            try imageData.write(to: fileURL)
+                            
+                            let responseObj = [
+                                "status": "success",
+                                "message": "Screenshot saved to \(fileURL.path)",
                                 "path": fileURL.path
                             ]
                             let responseData = try JSONSerialization.data(withJSONObject: responseObj, options: .prettyPrinted)

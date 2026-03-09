@@ -156,6 +156,28 @@ async def list_tools() -> list[Tool]:
                 },
                 "required": ["element_id"]
             }
+        ),
+        Tool(
+            name="export_screenshot",
+            description="将指定元素及其所有子元素的层级渲染截图导出为 PNG 图片并保存到本地目录。与 save_image 不同，此功能不仅限于 UIImageView，可对任何类型的视图进行截图导出。如果未配置路径，将默认保存在当前目录下。",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "element_id": {
+                        "type": "string",
+                        "description": "元素的唯一标识符（oid）"
+                    },
+                    "directory": {
+                        "type": "string",
+                        "description": "保存图片的目录路径，默认为当前工作目录下的 screenshots 文件夹"
+                    },
+                    "filename": {
+                        "type": "string",
+                        "description": "保存的文件名（包含 .png），默认为 screenshot_{oid}.png"
+                    }
+                },
+                "required": ["element_id"]
+            }
         )
     ]
 
@@ -177,9 +199,10 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             return await search_elements(arguments)
         elif name == "modify_element_attribute":
             return await modify_element_attribute(arguments)
-
         elif name == "save_image":
             return await save_image(arguments)
+        elif name == "export_screenshot":
+            return await export_screenshot(arguments)
         else:
             return [TextContent(
                 type="text",

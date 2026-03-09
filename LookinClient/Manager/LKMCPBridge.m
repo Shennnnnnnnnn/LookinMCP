@@ -963,6 +963,41 @@
       }];
 }
 
+#pragma mark - Screenshot Export
+
+- (NSString *)exportScreenshotWithOID:(NSString *)oid {
+  LookinDisplayItem *item = [self findDisplayItemWithOID:oid];
+  if (!item) {
+    return [self
+        errorJSON:[NSString stringWithFormat:@"未找到 OID 为 %@ 的元素", oid]];
+  }
+
+  NSImage *image = item.groupScreenshot;
+  if (!image) {
+    return [self errorJSON:@"该元素暂无可用的截图数据。请确保在 Lookin "
+                           @"客户端中选中了该元素或该元素在屏幕内可见。"];
+  }
+
+  // Convert NSImage to PNG data
+  CGImageRef cgRef = [image CGImageForProposedRect:NULL context:nil hints:nil];
+  NSBitmapImageRep *newRep = [[NSBitmapImageRep alloc] initWithCGImage:cgRef];
+  [newRep setSize:[image size]];
+  NSData *pngData = [newRep representationUsingType:NSBitmapImageFileTypePNG
+                                         properties:@{}];
+
+  if (!pngData) {
+    return [self errorJSON:@"图片格式转换为了 PNG 时失败"];
+  }
+
+  NSString *base64 = [pngData base64EncodedStringWithOptions:0];
+  NSMutableDictionary *result = [NSMutableDictionary dictionary];
+  result[@"status"] = @"success";
+  result[@"oid"] = oid;
+  result[@"data"] = base64;
+
+  return [self jsonStringFromDictionary:result];
+}
+
 #pragma mark - Actions
 
 - (void)reloadViewWithCompletion:
@@ -1198,8 +1233,8 @@
     for (id item in (NSArray *)attr.value) {
       if ([item isKindOfClass:[LookinColor class]]) {
         [serializedArray addObject:[self serializeColor:(LookinColor *)item]];
-      } else if ([item
-                     isKindOfClass:NSClassFromString(@"LookinAutoLayoutConstraint")]) {
+      } else if ([item isKindOfClass:NSClassFromString(
+                                         @"LookinAutoLayoutConstraint")]) {
         id serialized = [self serializeConstraint:item];
         if (serialized) {
           [serializedArray addObject:serialized];

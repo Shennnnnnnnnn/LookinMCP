@@ -103,6 +103,30 @@
                return response;
              }];
 
+  // GET /api/element/:oid/screenshot
+  [self.webServer
+      addHandlerForMethod:@"GET"
+                pathRegex:@"^/api/element/(.+)/screenshot$"
+             requestClass:[GCDWebServerRequest class]
+             processBlock:^GCDWebServerResponse *(
+                 __kindof GCDWebServerRequest *request) {
+               NSString *path = request.path;
+               NSArray *components = [path componentsSeparatedByString:@"/"];
+               // components: ["", "api", "element", "{oid}", "screenshot"]
+               if (components.count < 4) {
+                 return [self errorResponse:@"Invalid path"];
+               }
+               NSString *oid = components[3];
+
+               if (!oid || oid.length == 0) {
+                 return [self errorResponse:@"Missing element OID"];
+               }
+
+               NSString *jsonString = [bridge exportScreenshotWithOID:oid];
+               return [GCDWebServerDataResponse
+                   responseWithJSONObject:[self parseJSON:jsonString]];
+             }];
+
   // GET /api/element/:oid
   [self.webServer
       addHandlerForMethod:@"GET"

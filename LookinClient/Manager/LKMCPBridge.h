@@ -64,6 +64,9 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)exportImageFromViewWithOID:(NSString *)oid
                         completion:(void (^)(NSString *jsonString))completion;
 
+/// 导出指定 OID 视图及其子视图的截图 (PNG 格式的 Base64 编码)
+- (NSString *)exportScreenshotWithOID:(NSString *)oid;
+
 #pragma mark - Actions
 
 /**
