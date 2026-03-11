@@ -311,7 +311,7 @@ public class LKMCPManager: NSObject {
                                 "description": .string("保存的文件名（包含 .png），默认为 screenshot_{oid}.png")
                             ])
                         ]),
-                        "required": .array([.string("element_id")])
+                        "required": .array([.string("element_id"), .string("directory")])
                     ])
                 )
             ]
@@ -407,7 +407,9 @@ public class LKMCPManager: NSObject {
                 guard let elementId = params.arguments?["element_id"]?.stringValue else {
                     return .init(content: [.text("Missing element_id")], isError: true)
                 }
-                let directory = params.arguments?["directory"]?.stringValue ?? "screenshots"
+                guard let directory = params.arguments?["directory"]?.stringValue else {
+                    return .init(content: [.text("Missing directory parameter. Please provide a valid directory path to save the screenshot.")], isError: true)
+                }
                 let filename = params.arguments?["filename"]?.stringValue ?? "screenshot_\(elementId).png"
                 
                 // Fetch screenshot base64

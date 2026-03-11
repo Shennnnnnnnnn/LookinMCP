@@ -176,7 +176,7 @@ async def list_tools() -> list[Tool]:
                         "description": "保存的文件名（包含 .png），默认为 screenshot_{oid}.png"
                     }
                 },
-                "required": ["element_id"]
+                "required": ["element_id", "directory"]
             }
         )
     ]
@@ -473,6 +473,98 @@ async def save_image(arguments: dict) -> list[TextContent]:
                             text=json.dumps({
                                 "status": "success",
                                 "message": f"Image saved to {os.path.abspath(file_path)}",
+                                "path": os.path.abspath(file_path)
+                            }, indent=2, ensure_ascii=False)
+                        )]
+                    except Exception as text_err:
+                         return [TextContent(
+                            type="text",
+                            text=json.dumps({
+                                "status": "error",
+                                "message": f"Failed to save file: {str(text_err)}"
+                            }, indent=2, ensure_ascii=False)
+                        )]
+                    
+                else:
+                    error_text = await resp.text()
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps({
+                            "status": "error",
+                            "message": f"HTTP {resp.status}: {error_text}"
+                        }, indent=2, ensure_ascii=False)
+                    )]
+    except Exception as e:
+        return [TextContent(
+            type="text",
+            text=json.dumps({
+                "status": "error",
+                "message": f"请求失败: {str(e)}"
+            }, indent=2, ensure_ascii=False)
+        )]
+
+async def export_screenshot(arguments: dict) -> list[TextContent]:
+    """导出截图"""
+    element_id = arguments["element_id"]
+    directory = arguments.get("directory")
+    filename = arguments.get("filename")
+    
+    if not directory:
+        return [TextContent(
+            type="text",
+            text=json.dumps({
+                "status": "error",
+                "message": "Missing directory parameter. Please provide a valid directory path to save the screenshot."
+            }, indent=2, ensure_ascii=False)
+        )]
+        
+    import base64
+    import os
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{LOOKIN_SERVER_URL}/api/element/{element_id}/screenshot") as resp:
+                if resp.status == 200:
+                    result = await resp.json()
+                    status = result.get("status")
+                    if status != "success":
+                         return [TextContent(
+                            type="text",
+                            text=json.dumps({
+                                "status": "error",
+                                "message": result.get("message", "Unknown error")
+                            }, indent=2, ensure_ascii=False)
+                        )]
+
+                    base64_data = result.get("data")
+                    if not base64_data:
+                         return [TextContent(
+                            type="text",
+                            text=json.dumps({
+                                "status": "error",
+                                "message": "No screenshot data received"
+                            }, indent=2, ensure_ascii=False)
+                        )]
+                    
+                    # Ensure directory exists
+                    if not os.path.exists(directory):
+                        os.makedirs(directory)
+                        
+                    if not filename:
+                        filename = f"screenshot_{element_id}.png"
+                        
+                    file_path = os.path.join(directory, filename)
+                    
+                    try:
+                        image_data = base64.b64decode(base64_data)
+                        with open(file_path, "wb") as f:
+                            f.write(image_data)
+                            
+                        return [TextContent(
+                            type="text",
+                            text=json.dumps({
+                                "status": "success",
+                                "message": f"Screenshot saved to {os.path.abspath(file_path)}",
                                 "path": os.path.abspath(file_path)
                             }, indent=2, ensure_ascii=False)
                         )]
