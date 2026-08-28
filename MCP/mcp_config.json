@@ -1,10 +1,13 @@
 {
   "mcpServers": {
     "lookin": {
-      "command": "/usr/local/bin/python3",
+      "command": "python3",
       "args": [
-        "MCP/lookin_mcp_server.py"
-      ]
+        "/absolute/path/to/Lookin/MCP/lookin_mcp_server.py"
+      ],
+      "env": {
+        "LOOKIN_SERVER_URL": "http://127.0.0.1:10086"
+      }
     }
   }
 }

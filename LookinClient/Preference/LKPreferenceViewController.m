@@ -23,7 +23,10 @@
 @property(nonatomic, strong) LKPreferenceSwitchView *view_mcpServerEnabled;
 @property(nonatomic, strong) NSTextField *mcpPortLabel;
 @property(nonatomic, strong) NSTextField *mcpPortField;
+@property(nonatomic, strong) NSSegmentedControl *aiAccessModeControl;
 @property(nonatomic, strong) NSTextField *mcpConfigLabel;
+@property(nonatomic, strong) NSButton *aiCommandCopyButton;
+@property(nonatomic, copy) NSString *aiCopyValue;
 @property(nonatomic, strong) LKPreferencePopupView *view_contrast;
 
 //@property(nonatomic, strong) NSButton *debugButton;
@@ -113,11 +116,14 @@
   [self.view addSubview:self.view_enableLog];
 
   self.view_mcpServerEnabled = [[LKPreferenceSwitchView alloc]
-      initWithTitle:@"启用 MCP 服务器 (Enable MCP Server)"
-            message:@"使用 MCP 协议从外部控制 Lookin。"];
+      initWithTitle:@"AI Integration"
+            message:@"Expose the inspected hierarchy and screenshots to local MCP, "
+                    @"CLI, and Skill workflows."];
+  __weak typeof(self) weakSelf = self;
   self.view_mcpServerEnabled.didChange = ^(BOOL isChecked) {
     [LKPreferenceManager mainManager].mcpServerEnabled = isChecked;
     [[LKMCPManager sharedManager] toggleServerIfNeeded];
+    [weakSelf _updateMcpConfigLabel];
   };
   [self.view addSubview:self.view_mcpServerEnabled];
 
@@ -137,12 +143,29 @@
 
   [self.view addSubview:self.mcpPortField];
 
+  self.aiAccessModeControl =
+      [NSSegmentedControl segmentedControlWithLabels:@[ @"MCP", @"CLI", @"Skill" ]
+                                        trackingMode:NSSegmentSwitchTrackingSelectOne
+                                              target:self
+                                              action:@selector(_aiAccessModeChanged:)];
+  self.aiAccessModeControl.selectedSegment = 0;
+  [self.view addSubview:self.aiAccessModeControl];
+
   self.mcpConfigLabel = [NSTextField labelWithString:@""];
   self.mcpConfigLabel.font = [NSFont userFixedPitchFontOfSize:12];
   self.mcpConfigLabel.textColor = [NSColor secondaryLabelColor];
   self.mcpConfigLabel.selectable = YES;
   self.mcpConfigLabel.lineBreakMode = NSLineBreakByWordWrapping;
   [self.view addSubview:self.mcpConfigLabel];
+
+  NSImage *copyImage = [NSImage imageWithSystemSymbolName:@"doc.on.doc"
+                                accessibilityDescription:@"Copy"];
+  self.aiCommandCopyButton = [NSButton buttonWithImage:copyImage
+                                                target:self
+                                                action:@selector(_copyAICommand:)];
+  self.aiCommandCopyButton.bezelStyle = NSBezelStyleTexturedRounded;
+  self.aiCommandCopyButton.toolTip = @"Copy setup command";
+  [self.view addSubview:self.aiCommandCopyButton];
 
   //    self.debugButton = [NSButton lk_normalButtonWithTitle:@"Debug"
   //    target:self action:@selector(_handleDebugButton)]; [self.view
@@ -180,8 +203,8 @@
   NSInteger port = sender.integerValue;
   if (port > 0 && port <= 65535) {
     [LKPreferenceManager mainManager].mcpServerPort = port;
+    [[LKMCPManager sharedManager] restartServerIfNeeded];
     [self _updateMcpConfigLabel];
-    [[LKMCPManager sharedManager] toggleServerIfNeeded];
   } else {
     sender.integerValue = [LKPreferenceManager mainManager].mcpServerPort;
   }
@@ -189,16 +212,52 @@
 
 - (void)_updateMcpConfigLabel {
   NSInteger port = [LKPreferenceManager mainManager].mcpServerPort;
-  NSString *json = [NSString
-      stringWithFormat:
-          @"配置示例：\n\n1. 命令行:\nclaude mcp add --transport http lookin "
-          @"http://127.0.0.1:%@/mcp\n\n"
-          @"2. claude:\n\"lookin\": {\n  \"type\": \"http\",\n  \"url\": "
-          @"\"http://127.0.0.1:%@/mcp\"\n}\n\n"
-          @"3. antigravity:\n\"lookin\": {\n  \"type\": \"remote\",\n  "
-          @"\"serverURL\": \"http://127.0.0.1:%@/mcp\"\n}",
-          @(port), @(port), @(port)];
-  self.mcpConfigLabel.stringValue = json;
+  LKMCPManager *manager = [LKMCPManager sharedManager];
+  NSString *status = nil;
+  if (manager.isRunning) {
+    status = @"Running locally";
+  } else if ([LKPreferenceManager mainManager].mcpServerEnabled) {
+    status = @"Unavailable - check the selected port";
+  } else {
+    status = @"Off";
+  }
+
+  NSInteger mode = self.aiAccessModeControl.selectedSegment;
+  NSString *detail = nil;
+  if (mode == 1) {
+    self.aiCopyValue = @"./bin/lookin capture --output .lookin-capture";
+    detail = [NSString
+        stringWithFormat:@"%@\nAPI  %@\n\n%@",
+                         status, manager.apiServerURL, self.aiCopyValue];
+  } else if (mode == 2) {
+    self.aiCopyValue = @"$lookin-ui-debug";
+    detail = [NSString
+        stringWithFormat:@"%@\nProject skill  .agents/skills/lookin-ui-debug\n\nInvoke  %@",
+                         status, self.aiCopyValue];
+  } else {
+    self.aiCopyValue = [NSString
+        stringWithFormat:@"codex mcp add lookin --url http://127.0.0.1:%@/mcp",
+                         @(port)];
+    detail = [NSString
+        stringWithFormat:@"%@\nEndpoint  http://127.0.0.1:%@/mcp\n\n%@",
+                         status, @(port), self.aiCopyValue];
+  }
+  self.mcpConfigLabel.stringValue = detail;
+  self.aiCommandCopyButton.enabled = self.aiCopyValue.length > 0;
+}
+
+- (void)_aiAccessModeChanged:(NSSegmentedControl *)sender {
+  [self _updateMcpConfigLabel];
+  [self.view setNeedsLayout:YES];
+}
+
+- (void)_copyAICommand:(NSButton *)sender {
+  if (self.aiCopyValue.length == 0) {
+    return;
+  }
+  NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+  [pasteboard clearContents];
+  [pasteboard setString:self.aiCopyValue forType:NSPasteboardTypeString];
 }
 
 - (void)viewDidLayout {
@@ -248,7 +307,15 @@
       .y(y - 2)
       .width(80)
       .height(22);
-  y = self.mcpPortField.$maxY + 10;
+  y = self.mcpPortField.$maxY + 12;
+
+  $(self.aiAccessModeControl).x(134).y(y).width(260).height(28);
+  $(self.aiCommandCopyButton)
+      .x(self.aiAccessModeControl.$maxX + 8)
+      .y(y)
+      .width(32)
+      .height(28);
+  y = self.aiAccessModeControl.$maxY + 10;
 
   self.mcpConfigLabel.preferredMaxLayoutWidth =
       self.view.bounds.size.width - 134 - insets.right;

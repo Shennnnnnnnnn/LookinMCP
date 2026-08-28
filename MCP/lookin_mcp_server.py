@@ -1,609 +1,289 @@
 #!/usr/bin/env python3
-"""
-Lookin MCP Server
-提供 Lookin 视图调试功能的 MCP 接口
-"""
+"""Lookin stdio MCP adapter backed by the shared local HTTP client."""
+
+from __future__ import annotations
 
 import asyncio
 import json
 import logging
-from typing import Any, Optional
-from mcp.server import Server
-from mcp.types import Tool, TextContent, ImageContent, EmbeddedResource
+from pathlib import Path
+from typing import Any, Callable
+
 import mcp.server.stdio
-import aiohttp
+from mcp.server import Server
+from mcp.types import TextContent, Tool
 
-# 配置日志
+from lookin_client import LookinClient, LookinClientError
+
+
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("lookin-mcp-server")
+logger = logging.getLogger("lookin-mcp")
+app = Server(
+    "lookin-mcp-server",
+    version="1.0.0",
+    instructions=(
+        "Use get_status when Lookin readiness is uncertain. For UI reproduction, "
+        "prefer one capture_ui_context call so screenshot and hierarchy describe "
+        "the same UI state. Keep hierarchy queries bounded by element_id or "
+        "max_depth. Reload only before final validation or capture. File-producing "
+        "tools write only to the directory supplied by the user."
+    ),
+)
+client = LookinClient()
 
-# 创建 MCP 服务器实例
-app = Server("lookin-mcp-server")
 
-# Lookin HTTP 服务器地址
-LOOKIN_SERVER_URL = "http://localhost:10086"
-
-# 存储 Lookin 连接状态
-lookin_state = {
-    "connected": False,
-    "hierarchy": None,
-    "selected_items": []
-}
+def _schema(
+    properties: dict[str, Any] | None = None, required: list[str] | None = None
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "type": "object",
+        "properties": properties or {},
+        "additionalProperties": False,
+    }
+    if required:
+        result["required"] = required
+    return result
 
 
 @app.list_tools()
 async def list_tools() -> list[Tool]:
-    """列出所有可用的工具"""
     return [
         Tool(
-            name="get_hierarchy",
-            description="获取当前页面的视图层级结构，包含所有元素的基本信息（类名、frame、是否可见等）",
-            inputSchema={
-                "type": "object",
-                "properties": {
+            name="get_status",
+            description=(
+                "Preflight Lookin and report whether an inspected hierarchy is ready. "
+                "Call first when UI state is uncertain or another Lookin tool fails."
+            ),
+            inputSchema=_schema(),
+        ),
+        Tool(
+            name="get_ui_context",
+            description=(
+                "Get an AI-oriented UI snapshot with hierarchy, root IDs, counts, and "
+                "focused details. Prefer this for UI reproduction or broad diagnosis."
+            ),
+            inputSchema=_schema(
+                {
                     "max_depth": {
                         "type": "integer",
-                        "description": "最大层级深度，默认为 -1（无限制）",
-                        "default": -1
+                        "default": 8,
+                        "description": "Maximum depth. Use -1 only when necessary.",
+                    },
+                    "element_id": {
+                        "type": "string",
+                        "description": "Optional component root OID.",
+                    },
+                }
+            ),
+        ),
+        Tool(
+            name="get_hierarchy",
+            description=(
+                "Get class, text, frame, visibility, and child relationships. Scope "
+                "by element_id or max_depth to control response size."
+            ),
+            inputSchema=_schema(
+                {
+                    "max_depth": {
+                        "type": "integer",
+                        "default": -1,
+                        "description": "Maximum depth; -1 means unlimited.",
                     },
                     "filter_class": {
                         "type": "string",
-                        "description": "可选：按类名过滤视图，例如 'UILabel' 或 'UIButton'"
-                    }
+                        "description": "Optional case-insensitive class filter.",
+                    },
+                    "element_id": {
+                        "type": "string",
+                        "description": "Optional subtree root OID.",
+                    },
                 }
-            }
+            ),
         ),
         Tool(
             name="get_element_info",
-            description="获取指定元素的详细信息，包括所有属性、约束、子视图等",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "element_id": {
-                        "type": "string",
-                        "description": "元素的唯一标识符（oid）"
-                    }
-                },
-                "required": ["element_id"]
-            }
+            description=(
+                "Inspect one element's frame, text, colors, fonts, borders, radius, "
+                "hierarchy links, and effective constraints."
+            ),
+            inputSchema=_schema(
+                {"element_id": {"type": "string", "description": "Element OID."}},
+                ["element_id"],
+            ),
         ),
         Tool(
             name="get_relative_position",
-            description="获取两个元素之间的相对位置关系",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "element_id_1": {
-                        "type": "string",
-                        "description": "第一个元素的唯一标识符"
-                    },
-                    "element_id_2": {
-                        "type": "string",
-                        "description": "第二个元素的唯一标识符"
-                    }
+            description=(
+                "Compare two absolute frames and return horizontal, vertical, "
+                "distance, and overlap relationships."
+            ),
+            inputSchema=_schema(
+                {
+                    "element_id_1": {"type": "string"},
+                    "element_id_2": {"type": "string"},
                 },
-                "required": ["element_id_1", "element_id_2"]
-            }
-        ),
-        Tool(
-            name="reload_view",
-            description="刷新视图层级，重新获取最新的界面状态",
-            inputSchema={
-                "type": "object",
-                "properties": {}
-            }
+                ["element_id_1", "element_id_2"],
+            ),
         ),
         Tool(
             name="search_elements",
-            description="搜索包含指定文本或类名的元素",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "搜索关键词，可以是类名、文本内容或标识符"
-                    },
+            description="Find element OIDs by text, class, identifier, or size.",
+            inputSchema=_schema(
+                {
+                    "query": {"type": "string"},
                     "search_type": {
                         "type": "string",
                         "enum": ["all", "class", "text", "identifier", "size"],
-                        "description": "搜索类型：all（全部）、class（类名）、text（文本）、identifier（标识符）、size（尺寸，格式如 100x200）",
-                        "default": "all"
-                    }
+                        "default": "all",
+                    },
                 },
-                "required": ["query"]
-            }
+                ["query"],
+            ),
         ),
         Tool(
-            name="modify_element_attribute",
-            description="修改元素的属性值（例如 frame、backgroundColor、alpha 等）",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "element_id": {
-                        "type": "string",
-                        "description": "元素的唯一标识符"
-                    },
-                    "attribute": {
-                        "type": "string",
-                        "description": "要修改的属性名称"
-                    },
-                    "value": {
-                        "type": "string",
-                        "description": "新的属性值"
-                    }
-                },
-                "required": ["element_id", "attribute", "value"]
-            }
+            name="reload_view",
+            description=(
+                "Refresh from the inspected app. Call once before a final capture or "
+                "after changing the target UI."
+            ),
+            inputSchema=_schema(),
         ),
         Tool(
             name="save_image",
-            description="将指定元素的图片将会保存到本地目录（默认为当前目录）",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "element_id": {
-                        "type": "string",
-                        "description": "元素的唯一标识符"
-                    },
-                    "directory": {
-                        "type": "string",
-                        "description": "保存图片的目录路径，默认为当前工作目录"
-                    },
-                    "filename": {
-                        "type": "string",
-                        "description": "保存的文件名，默认为 element_{oid}.png"
-                    }
+            description="Save the image content owned by an image element.",
+            inputSchema=_schema(
+                {
+                    "element_id": {"type": "string"},
+                    "directory": {"type": "string", "default": "."},
+                    "filename": {"type": "string"},
                 },
-                "required": ["element_id"]
-            }
+                ["element_id"],
+            ),
         ),
         Tool(
             name="export_screenshot",
-            description="将指定元素及其所有子元素的层级渲染截图导出为 PNG 图片并保存到本地目录。与 save_image 不同，此功能不仅限于 UIImageView，可对任何类型的视图进行截图导出。如果未配置路径，将默认保存在当前目录下。",
-            inputSchema={
-                "type": "object",
-                "properties": {
+            description=(
+                "Save the rendered screenshot for an element and descendants. Use "
+                "the returned absolute path as visual evidence."
+            ),
+            inputSchema=_schema(
+                {
+                    "element_id": {"type": "string"},
+                    "directory": {"type": "string"},
+                    "filename": {"type": "string"},
+                },
+                ["element_id", "directory"],
+            ),
+        ),
+        Tool(
+            name="capture_ui_context",
+            description=(
+                "Create a synchronized UI reproduction bundle after one refresh. "
+                "Writes screenshot.png, context.json, element.json, and manifest.json."
+            ),
+            inputSchema=_schema(
+                {
+                    "directory": {"type": "string"},
                     "element_id": {
                         "type": "string",
-                        "description": "元素的唯一标识符（oid）"
+                        "description": "Optional component root OID.",
                     },
-                    "directory": {
-                        "type": "string",
-                        "description": "保存图片的目录路径，默认为当前工作目录下的 screenshots 文件夹"
-                    },
-                    "filename": {
-                        "type": "string",
-                        "description": "保存的文件名（包含 .png），默认为 screenshot_{oid}.png"
-                    }
+                    "max_depth": {"type": "integer", "default": 8},
+                    "refresh": {"type": "boolean", "default": True},
                 },
-                "required": ["element_id", "directory"]
-            }
-        )
+                ["directory"],
+            ),
+        ),
     ]
 
 
 @app.call_tool()
 async def call_tool(name: str, arguments: Any) -> list[TextContent]:
-    """处理工具调用"""
-    
+    args = arguments or {}
     try:
-        if name == "get_hierarchy":
-            return await get_hierarchy(arguments)
+        if name == "get_status":
+            result = await _run(client.health)
+        elif name == "get_ui_context":
+            result = await _run(
+                client.context,
+                max_depth=args.get("max_depth", 8),
+                element_id=args.get("element_id"),
+            )
+        elif name == "get_hierarchy":
+            result = await _run(
+                client.hierarchy,
+                max_depth=args.get("max_depth", -1),
+                filter_class=args.get("filter_class"),
+                element_id=args.get("element_id"),
+            )
         elif name == "get_element_info":
-            return await get_element_info(arguments)
+            result = await _run(client.element, args["element_id"])
         elif name == "get_relative_position":
-            return await get_relative_position(arguments)
-        elif name == "reload_view":
-            return await reload_view(arguments)
+            result = await _run(
+                client.relative_position,
+                args["element_id_1"],
+                args["element_id_2"],
+            )
         elif name == "search_elements":
-            return await search_elements(arguments)
-        elif name == "modify_element_attribute":
-            return await modify_element_attribute(arguments)
+            result = await _run(
+                client.search, args["query"], args.get("search_type", "all")
+            )
+        elif name == "reload_view":
+            result = await _run(client.reload)
         elif name == "save_image":
-            return await save_image(arguments)
+            directory = Path(args.get("directory", "."))
+            filename = args.get("filename") or f"element_{args['element_id']}.png"
+            path = await _run(
+                client.save_image, args["element_id"], directory / filename
+            )
+            result = {"status": "success", "path": str(path)}
         elif name == "export_screenshot":
-            return await export_screenshot(arguments)
+            directory = Path(args["directory"])
+            filename = args.get("filename") or f"screenshot_{args['element_id']}.png"
+            path = await _run(
+                client.save_screenshot, args["element_id"], directory / filename
+            )
+            result = {"status": "success", "path": str(path)}
+        elif name == "capture_ui_context":
+            result = await _run(
+                client.capture,
+                args["directory"],
+                element_id=args.get("element_id"),
+                max_depth=args.get("max_depth", 8),
+                refresh=args.get("refresh", True),
+            )
         else:
-            return [TextContent(
-                type="text",
-                text=f"未知的工具: {name}"
-            )]
-    except Exception as e:
-        logger.error(f"工具调用失败: {name}, 错误: {str(e)}")
-        return [TextContent(
-            type="text",
-            text=f"错误: {str(e)}"
-        )]
-
-
-async def get_hierarchy(arguments: dict) -> list[TextContent]:
-    """获取视图层级结构"""
-    max_depth = arguments.get("max_depth", -1)
-    filter_class = arguments.get("filter_class")
-    element_id = arguments.get("element_id")
-    
-    try:
-        params = {"max_depth": max_depth}
-        if filter_class:
-            params["filter_class"] = filter_class
-        if element_id:
-            params["element_id"] = element_id
-            
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{LOOKIN_SERVER_URL}/api/hierarchy", params=params) as resp:
-                if resp.status == 200:
-                    result = await resp.json()
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps(result, indent=2, ensure_ascii=False)
-                    )]
-                else:
-                    error_text = await resp.text()
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "status": "error",
-                            "message": f"HTTP {resp.status}: {error_text}"
-                        }, indent=2, ensure_ascii=False)
-                    )]
-    except aiohttp.ClientConnectorError:
-        return [TextContent(
-            type="text",
-            text=json.dumps({
-                "status": "error",
-                "message": "无法连接到 Lookin 服务器。请确保 Lookin 应用正在运行。"
-            }, indent=2, ensure_ascii=False)
-        )]
-    except Exception as e:
-        return [TextContent(
-            type="text",
-            text=json.dumps({
-                "status": "error",
-                "message": f"请求失败: {str(e)}"
-            }, indent=2, ensure_ascii=False)
-        )]
-
-
-async def get_element_info(arguments: dict) -> list[TextContent]:
-    """获取元素详细信息"""
-    element_id = arguments["element_id"]
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{LOOKIN_SERVER_URL}/api/element/{element_id}") as resp:
-                if resp.status == 200:
-                    result = await resp.json()
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps(result, indent=2, ensure_ascii=False)
-                    )]
-                else:
-                    error_text = await resp.text()
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "status": "error",
-                            "message": f"HTTP {resp.status}: {error_text}"
-                        }, indent=2, ensure_ascii=False)
-                    )]
-    except Exception as e:
-        return [TextContent(
-            type="text",
-            text=json.dumps({
-                "status": "error",
-                "message": f"请求失败: {str(e)}"
-            }, indent=2, ensure_ascii=False)
-        )]
-
-
-async def get_relative_position(arguments: dict) -> list[TextContent]:
-    """获取两个元素的相对位置"""
-    element_id_1 = arguments["element_id_1"]
-    element_id_2 = arguments["element_id_2"]
-    
-    try:
-        params = {
-            "element_id_1": element_id_1,
-            "element_id_2": element_id_2
-        }
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{LOOKIN_SERVER_URL}/api/relative_position", params=params) as resp:
-                if resp.status == 200:
-                    result = await resp.json()
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps(result, indent=2, ensure_ascii=False)
-                    )]
-                else:
-                    error_text = await resp.text()
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "status": "error",
-                            "message": f"HTTP {resp.status}: {error_text}"
-                        }, indent=2, ensure_ascii=False)
-                    )]
-    except Exception as e:
-        return [TextContent(
-            type="text",
-            text=json.dumps({
-                "status": "error",
-                "message": f"请求失败: {str(e)}"
-            }, indent=2, ensure_ascii=False)
-        )]
-
-
-async def reload_view(arguments: dict) -> list[TextContent]:
-    """刷新视图"""
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(f"{LOOKIN_SERVER_URL}/api/reload") as resp:
-                if resp.status == 200:
-                    result = await resp.json()
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps(result, indent=2, ensure_ascii=False)
-                    )]
-                else:
-                    error_text = await resp.text()
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "status": "error",
-                            "message": f"HTTP {resp.status}: {error_text}"
-                        }, indent=2, ensure_ascii=False)
-                    )]
-    except Exception as e:
-        return [TextContent(
-            type="text",
-            text=json.dumps({
-                "status": "error",
-                "message": f"请求失败: {str(e)}"
-            }, indent=2, ensure_ascii=False)
-        )]
-
-
-async def search_elements(arguments: dict) -> list[TextContent]:
-    """搜索元素"""
-    query = arguments["query"]
-    search_type = arguments.get("search_type", "all")
-    
-    try:
-        params = {
-            "query": query,
-            "search_type": search_type
-        }
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{LOOKIN_SERVER_URL}/api/search", params=params) as resp:
-                if resp.status == 200:
-                    result = await resp.json()
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps(result, indent=2, ensure_ascii=False)
-                    )]
-                else:
-                    error_text = await resp.text()
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "status": "error",
-                            "message": f"HTTP {resp.status}: {error_text}"
-                        }, indent=2, ensure_ascii=False)
-                    )]
-    except Exception as e:
-        return [TextContent(
-            type="text",
-            text=json.dumps({
-                "status": "error",
-                "message": f"请求失败: {str(e)}"
-            }, indent=2, ensure_ascii=False)
-        )]
-
-
-async def modify_element_attribute(arguments: dict) -> list[TextContent]:
-    """修改元素属性"""
-    element_id = arguments["element_id"]
-    attribute = arguments["attribute"]
-    value = arguments["value"]
-    
-    # 注意: 修改属性功能暂未在 HTTP 服务器中实现
-    return [TextContent(
-        type="text",
-        text=json.dumps({
+            result = {"status": "error", "message": f"Unknown tool: {name}"}
+    except (KeyError, TypeError) as error:
+        result = {
             "status": "error",
-            "message": "修改元素属性功能暂未实现",
-            "element_id": element_id,
-            "attribute": attribute,
-            "value": value
-        }, indent=2, ensure_ascii=False)
-    )]
+            "message": f"Invalid arguments for {name}: {error}",
+        }
+    except LookinClientError as error:
+        result = error.as_dict()
+    except Exception as error:
+        logger.exception("Lookin tool failed: %s", name)
+        result = {"status": "error", "message": str(error)}
 
-
-async def save_image(arguments: dict) -> list[TextContent]:
-    """保存图片"""
-    element_id = arguments["element_id"]
-    directory = arguments.get("directory", ".")
-    filename = arguments.get("filename")
-    
-    import base64
-    import os
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{LOOKIN_SERVER_URL}/api/element/{element_id}/image") as resp:
-                if resp.status == 200:
-                    result = await resp.json()
-                    status = result.get("status")
-                    if status != "success":
-                         return [TextContent(
-                            type="text",
-                            text=json.dumps({
-                                "status": "error",
-                                "message": result.get("message", "Unknown error")
-                            }, indent=2, ensure_ascii=False)
-                        )]
-
-                    base64_data = result.get("data")
-                    if not base64_data:
-                         return [TextContent(
-                            type="text",
-                            text=json.dumps({
-                                "status": "error",
-                                "message": "No image data received"
-                            }, indent=2, ensure_ascii=False)
-                        )]
-                    
-                    # Ensure directory exists
-                    if not os.path.exists(directory):
-                        os.makedirs(directory)
-                        
-                    if not filename:
-                        filename = f"element_{element_id}.png"
-                        
-                    file_path = os.path.join(directory, filename)
-                    
-                    try:
-                        image_data = base64.b64decode(base64_data)
-                        with open(file_path, "wb") as f:
-                            f.write(image_data)
-                            
-                        return [TextContent(
-                            type="text",
-                            text=json.dumps({
-                                "status": "success",
-                                "message": f"Image saved to {os.path.abspath(file_path)}",
-                                "path": os.path.abspath(file_path)
-                            }, indent=2, ensure_ascii=False)
-                        )]
-                    except Exception as text_err:
-                         return [TextContent(
-                            type="text",
-                            text=json.dumps({
-                                "status": "error",
-                                "message": f"Failed to save file: {str(text_err)}"
-                            }, indent=2, ensure_ascii=False)
-                        )]
-                    
-                else:
-                    error_text = await resp.text()
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "status": "error",
-                            "message": f"HTTP {resp.status}: {error_text}"
-                        }, indent=2, ensure_ascii=False)
-                    )]
-    except Exception as e:
-        return [TextContent(
+    return [
+        TextContent(
             type="text",
-            text=json.dumps({
-                "status": "error",
-                "message": f"请求失败: {str(e)}"
-            }, indent=2, ensure_ascii=False)
-        )]
-
-async def export_screenshot(arguments: dict) -> list[TextContent]:
-    """导出截图"""
-    element_id = arguments["element_id"]
-    directory = arguments.get("directory")
-    filename = arguments.get("filename")
-    
-    if not directory:
-        return [TextContent(
-            type="text",
-            text=json.dumps({
-                "status": "error",
-                "message": "Missing directory parameter. Please provide a valid directory path to save the screenshot."
-            }, indent=2, ensure_ascii=False)
-        )]
-        
-    import base64
-    import os
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{LOOKIN_SERVER_URL}/api/element/{element_id}/screenshot") as resp:
-                if resp.status == 200:
-                    result = await resp.json()
-                    status = result.get("status")
-                    if status != "success":
-                         return [TextContent(
-                            type="text",
-                            text=json.dumps({
-                                "status": "error",
-                                "message": result.get("message", "Unknown error")
-                            }, indent=2, ensure_ascii=False)
-                        )]
-
-                    base64_data = result.get("data")
-                    if not base64_data:
-                         return [TextContent(
-                            type="text",
-                            text=json.dumps({
-                                "status": "error",
-                                "message": "No screenshot data received"
-                            }, indent=2, ensure_ascii=False)
-                        )]
-                    
-                    # Ensure directory exists
-                    if not os.path.exists(directory):
-                        os.makedirs(directory)
-                        
-                    if not filename:
-                        filename = f"screenshot_{element_id}.png"
-                        
-                    file_path = os.path.join(directory, filename)
-                    
-                    try:
-                        image_data = base64.b64decode(base64_data)
-                        with open(file_path, "wb") as f:
-                            f.write(image_data)
-                            
-                        return [TextContent(
-                            type="text",
-                            text=json.dumps({
-                                "status": "success",
-                                "message": f"Screenshot saved to {os.path.abspath(file_path)}",
-                                "path": os.path.abspath(file_path)
-                            }, indent=2, ensure_ascii=False)
-                        )]
-                    except Exception as text_err:
-                         return [TextContent(
-                            type="text",
-                            text=json.dumps({
-                                "status": "error",
-                                "message": f"Failed to save file: {str(text_err)}"
-                            }, indent=2, ensure_ascii=False)
-                        )]
-                    
-                else:
-                    error_text = await resp.text()
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "status": "error",
-                            "message": f"HTTP {resp.status}: {error_text}"
-                        }, indent=2, ensure_ascii=False)
-                    )]
-    except Exception as e:
-        return [TextContent(
-            type="text",
-            text=json.dumps({
-                "status": "error",
-                "message": f"请求失败: {str(e)}"
-            }, indent=2, ensure_ascii=False)
-        )]
+            text=json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True),
+        )
+    ]
 
 
-async def main():
-    """启动 MCP 服务器"""
+async def _run(call: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    return await asyncio.to_thread(call, *args, **kwargs)
+
+
+async def main() -> None:
     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-        logger.info("Lookin MCP Server 启动中...")
+        logger.info("Starting Lookin MCP stdio adapter for %s", client.server_url)
         await app.run(
             read_stream,
             write_stream,
-            app.create_initialization_options()
+            app.create_initialization_options(),
         )
 
 

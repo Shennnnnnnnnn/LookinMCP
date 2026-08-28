@@ -52,6 +52,16 @@ Lookin now supports exporting UI hierarchy to XML format, which includes all nec
 - [Vue Example](Docs/Vue_Component_Example.vue)
 - [XML Example](Docs/XML_Export_Example.xml)
 
+# AI Integration
+
+Lookin can expose the currently inspected iOS interface to AI tools through native MCP, a local CLI, and a repository Skill. Enable **AI Integration** in Settings, then use the workflow documented in [MCP/README.md](MCP/README.md).
+
+For UI reproduction, create a synchronized screenshot and hierarchy bundle:
+
+```bash
+./bin/lookin capture --output .lookin-capture
+```
+
 # Acknowledgements
 https://qxh1ndiez2w.feishu.cn/docx/YIFjdE4gIolp3hxn1tGckiBxnWf
 
@@ -110,6 +120,16 @@ Lookin 现在支持将 UI 层级结构导出为 XML 格式，包含所有必要�
 - [React 组件示例](Docs/React_Component_Example.jsx)
 - [Vue 组件示例](Docs/Vue_Component_Example.vue)
 - [XML 示例文件](Docs/XML_Export_Example.xml)
+
+# AI 集成
+
+Lookin 可通过原生 MCP、本地 CLI 和仓库级 Skill 将当前正在检查的 iOS 界面提供给 AI 工具。在设置中开启 **AI Integration** 后，按照 [MCP 使用说明](MCP/README.md) 接入。
+
+进行 UI 复刻时，建议一次性生成同步的截图与层级数据：
+
+```bash
+./bin/lookin capture --output .lookin-capture
+```
 
 # 鸣谢
 https://qxh1ndiez2w.feishu.cn/docx/YIFjdE4gIolp3hxn1tGckiBxnWf

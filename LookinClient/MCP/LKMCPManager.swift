@@ -5,13 +5,22 @@ import GCDWebServer
 @objc
 public class LKMCPManager: NSObject {
     @objc public static let sharedManager = LKMCPManager()
+    private static let apiServerPort: UInt = 10086
     
     // Reference to the server process
     private var task: Task<Void, Error>?
     private var server: Server?
     private var webServer: GCDWebServer?
     private var mcpTransport: StatelessHTTPServerTransport?
-    private var isRunning = false
+    @objc public private(set) var isRunning = false
+
+    @objc public var apiServerURL: String {
+        return "http://127.0.0.1:\(Self.apiServerPort)"
+    }
+
+    @objc public var mcpServerURL: String {
+        return "http://127.0.0.1:\(mcpServerPort)/mcp"
+    }
     
     @objc public var mcpServerEnabled: Bool {
         get {
@@ -44,6 +53,7 @@ public class LKMCPManager: NSObject {
         webServer?.stop()
         webServer = nil
         mcpTransport = nil
+        LKMCPHTTPServer.sharedInstance().stop()
         isRunning = false
     }
     
@@ -58,9 +68,16 @@ public class LKMCPManager: NSObject {
             }
         }
     }
+
+    @objc public func restartServerIfNeeded() {
+        stopServer()
+        startServerIfNeeded()
+    }
     
     private func startServer() {
-        self.isRunning = true
+        let apiServer = LKMCPHTTPServer.sharedInstance()
+        apiServer.start(onPort: Self.apiServerPort)
+        guard apiServer.isRunning else { return }
         
         // Start GCDWebServer
         let web = GCDWebServer()
@@ -99,10 +116,8 @@ public class LKMCPManager: NSObject {
                 }
                 
                 var mcpHeaders: [String: String] = [:]
-                if let reqHeaders = dataReq.headers as? [String: String] {
-                    for (k, v) in reqHeaders {
-                        mcpHeaders[k.lowercased()] = v
-                    }
+                for (key, value) in dataReq.headers {
+                    mcpHeaders[key.lowercased()] = value
                 }
                 if mcpHeaders["content-type"] == nil {
                     mcpHeaders["content-type"] = dataReq.contentType ?? "application/json"
@@ -140,8 +155,19 @@ public class LKMCPManager: NSObject {
             }
         })
         
-        let portToUse = UInt(self.mcpServerPort)
-        web.start(withPort: portToUse, bonjourName: nil)
+        do {
+            try web.start(options: [
+                GCDWebServerOption_Port: UInt(self.mcpServerPort),
+                GCDWebServerOption_BindToLocalhost: true
+            ])
+        } catch {
+            apiServer.stop()
+            self.webServer = nil
+            NSLog("Lookin MCP server failed to start: %@", error.localizedDescription)
+            return
+        }
+
+        self.isRunning = true
         
         Task {
             await self.restartMCPServerTask()
@@ -154,8 +180,9 @@ public class LKMCPManager: NSObject {
         let newServer = Server(
             name: "lookin-mcp-server",
             version: "1.0.0",
+            instructions: "Use get_status when Lookin readiness is uncertain. For UI reproduction, prefer one capture_ui_context call so screenshot and hierarchy describe the same UI state. Keep hierarchy queries bounded by element_id or max_depth. Reload only before final validation or capture. File-producing tools write only to the directory supplied by the user.",
             capabilities: .init(
-                tools: .init(listChanged: true)
+                tools: .init(listChanged: false)
             )
         )
         self.server = newServer
@@ -174,8 +201,33 @@ public class LKMCPManager: NSObject {
         await server.withMethodHandler(ListTools.self) { _ in
             let tools = [
                 Tool(
+                    name: "get_status",
+                    description: "Preflight Lookin and report whether an inspected UI hierarchy is ready.",
+                    inputSchema: .object([
+                        "type": .string("object"),
+                        "properties": .object([:])
+                    ])
+                ),
+                Tool(
+                    name: "get_ui_context",
+                    description: "Get a bounded, AI-oriented snapshot with hierarchy, root IDs, element counts, and focused details. Prefer this for UI reproduction.",
+                    inputSchema: .object([
+                        "type": .string("object"),
+                        "properties": .object([
+                            "max_depth": .object([
+                                "type": .string("integer"),
+                                "description": .string("Maximum depth, default 8. Use -1 only when necessary.")
+                            ]),
+                            "element_id": .object([
+                                "type": .string("string"),
+                                "description": .string("Optional component root OID.")
+                            ])
+                        ])
+                    ])
+                ),
+                Tool(
                     name: "get_hierarchy",
-                    description: "获取当前页面的视图层级结构，包含所有元素的基本信息（类名、frame、是否可见等）",
+                    description: "Get class, text, frame, visibility, and child relationships. Scope the response by depth or element ID.",
                     inputSchema: .object([
                         "type": .string("object"),
                         "properties": .object([
@@ -186,13 +238,17 @@ public class LKMCPManager: NSObject {
                             "filter_class": .object([
                                 "type": .string("string"),
                                 "description": .string("可选：按类名过滤视图，例如 'UILabel' 或 'UIButton'")
+                            ]),
+                            "element_id": .object([
+                                "type": .string("string"),
+                                "description": .string("Optional subtree root OID.")
                             ])
                         ])
                     ])
                 ),
                 Tool(
                     name: "get_element_info",
-                    description: "获取指定元素的详细信息，包括所有属性、约束、子视图等",
+                    description: "Inspect one element's exact frame, text, colors, typography, border, corner radius, hierarchy links, and effective constraints.",
                     inputSchema: .object([
                         "type": .string("object"),
                         "properties": .object([
@@ -206,7 +262,7 @@ public class LKMCPManager: NSObject {
                 ),
                 Tool(
                     name: "get_relative_position",
-                    description: "获取两个元素之间的相对位置关系",
+                    description: "Compare two elements using absolute frames and return horizontal, vertical, distance, and overlap relationships.",
                     inputSchema: .object([
                         "type": .string("object"),
                         "properties": .object([
@@ -224,7 +280,7 @@ public class LKMCPManager: NSObject {
                 ),
                 Tool(
                     name: "reload_view",
-                    description: "刷新视图层级，重新获取最新的界面状态",
+                    description: "Refresh the hierarchy from the inspected app. Call once before final validation or capture.",
                     inputSchema: .object([
                         "type": .string("object"),
                         "properties": .object([:])
@@ -232,7 +288,7 @@ public class LKMCPManager: NSObject {
                 ),
                 Tool(
                     name: "search_elements",
-                    description: "搜索包含指定文本或类名的元素",
+                    description: "Find element OIDs by text, class, identifier, or size before focused inspection.",
                     inputSchema: .object([
                         "type": .string("object"),
                         "properties": .object([
@@ -242,37 +298,19 @@ public class LKMCPManager: NSObject {
                             ]),
                             "search_type": .object([
                                 "type": .string("string"),
-                                "description": .string("搜索类型：all（全部）、class（类名）、text（文本）、identifier（标识符）、size（尺寸，格式如 100x200）")
+                                "enum": .array([
+                                    .string("all"), .string("class"), .string("text"),
+                                    .string("identifier"), .string("size")
+                                ]),
+                                "description": .string("Search field, default all.")
                             ])
                         ]),
                         "required": .array([.string("query")])
                     ])
                 ),
                 Tool(
-                    name: "modify_element_attribute",
-                    description: "修改元素的属性值（例如 frame、backgroundColor、alpha 等）",
-                    inputSchema: .object([
-                        "type": .string("object"),
-                        "properties": .object([
-                            "element_id": .object([
-                                "type": .string("string"),
-                                "description": .string("元素的唯一标识符")
-                            ]),
-                            "attribute": .object([
-                                "type": .string("string"),
-                                "description": .string("要修改的属性名称")
-                            ]),
-                            "value": .object([
-                                "type": .string("string"),
-                                "description": .string("新的属性值")
-                            ])
-                        ]),
-                        "required": .array([.string("element_id"), .string("attribute"), .string("value")])
-                    ])
-                ),
-                Tool(
                     name: "save_image",
-                    description: "将指定元素的图片将会保存到本地目录（默认为当前目录）",
+                    description: "Save the image content owned by an image element to a local file.",
                     inputSchema: .object([
                         "type": .string("object"),
                         "properties": .object([
@@ -294,7 +332,7 @@ public class LKMCPManager: NSObject {
                 ),
                 Tool(
                     name: "export_screenshot",
-                    description: "将指定元素及其所有子元素的层级渲染截图导出为 PNG 图片并保存到本地目录。与 save_image 不同，此功能不仅限于 UIImageView，可对任何类型的视图进行截图导出。如果未配置路径，将默认保存在当前目录下。",
+                    description: "Save the rendered screenshot for an element and its descendants. Use the returned absolute path as visual evidence.",
                     inputSchema: .object([
                         "type": .string("object"),
                         "properties": .object([
@@ -313,6 +351,32 @@ public class LKMCPManager: NSObject {
                         ]),
                         "required": .array([.string("element_id"), .string("directory")])
                     ])
+                ),
+                Tool(
+                    name: "capture_ui_context",
+                    description: "Create a synchronized UI reproduction bundle containing screenshot.png, context.json, element.json, and manifest.json.",
+                    inputSchema: .object([
+                        "type": .string("object"),
+                        "properties": .object([
+                            "directory": .object([
+                                "type": .string("string"),
+                                "description": .string("Directory for capture artifacts.")
+                            ]),
+                            "element_id": .object([
+                                "type": .string("string"),
+                                "description": .string("Optional component root OID.")
+                            ]),
+                            "max_depth": .object([
+                                "type": .string("integer"),
+                                "description": .string("Maximum hierarchy depth, default 8.")
+                            ]),
+                            "refresh": .object([
+                                "type": .string("boolean"),
+                                "description": .string("Refresh once before capture, default true.")
+                            ])
+                        ]),
+                        "required": .array([.string("directory")])
+                    ])
                 )
             ]
             return .init(tools: tools)
@@ -320,12 +384,25 @@ public class LKMCPManager: NSObject {
         
         await server.withMethodHandler(CallTool.self) { params in
             switch params.name {
+            case "get_status":
+                return await self.performLocalHTTPRequest(path: "/health", queryItems: [])
+
+            case "get_ui_context":
+                let maxDepth = params.arguments?["max_depth"]?.intValue ?? 8
+                let elementId = params.arguments?["element_id"]?.stringValue
+                return await self.performLocalHTTPRequest(path: "/api/context", queryItems: [
+                    URLQueryItem(name: "max_depth", value: "\(maxDepth)"),
+                    URLQueryItem(name: "element_id", value: elementId)
+                ])
+
             case "get_hierarchy":
                 let maxDepth = params.arguments?["max_depth"]?.intValue ?? -1
                 let filterClass = params.arguments?["filter_class"]?.stringValue
+                let elementId = params.arguments?["element_id"]?.stringValue
                 return await self.performLocalHTTPRequest(path: "/api/hierarchy", queryItems: [
                     URLQueryItem(name: "max_depth", value: "\(maxDepth)"),
-                    URLQueryItem(name: "filter_class", value: filterClass)
+                    URLQueryItem(name: "filter_class", value: filterClass),
+                    URLQueryItem(name: "element_id", value: elementId)
                 ])
                 
             case "get_element_info":
@@ -357,9 +434,6 @@ public class LKMCPManager: NSObject {
                     URLQueryItem(name: "query", value: query),
                     URLQueryItem(name: "search_type", value: searchType)
                 ])
-                
-            case "modify_element_attribute":
-                return .init(content: [.text("修改元素属性功能暂未实现")], isError: true)
                 
             case "save_image":
                 guard let elementId = params.arguments?["element_id"]?.stringValue else {
@@ -446,15 +520,149 @@ public class LKMCPManager: NSObject {
                 case .failure(let error):
                     return .init(content: [.text("Fetch error: \(error)")], isError: true)
                 }
+
+            case "capture_ui_context":
+                guard let directory = params.arguments?["directory"]?.stringValue else {
+                    return .init(content: [.text("Missing directory")], isError: true)
+                }
+                return await self.captureUIContext(
+                    directory: directory,
+                    elementId: params.arguments?["element_id"]?.stringValue,
+                    maxDepth: params.arguments?["max_depth"]?.intValue ?? 8,
+                    refresh: params.arguments?["refresh"]?.boolValue ?? true
+                )
                 
             default:
                 return .init(content: [.text("Unknown tool: \(params.name)")], isError: true)
             }
         }
     }
+
+    private func captureUIContext(
+        directory: String,
+        elementId: String?,
+        maxDepth: Int,
+        refresh: Bool
+    ) async -> CallTool.Result {
+        do {
+            if refresh {
+                let reloadResult = await fetchLocalHTTP(
+                    path: "/api/reload", queryItems: [], method: "POST"
+                )
+                if case .failure(let error) = reloadResult {
+                    return .init(content: [.text("Reload failed: \(error.localizedDescription)")], isError: true)
+                }
+            }
+
+            let contextResult = await fetchLocalHTTP(path: "/api/context", queryItems: [
+                URLQueryItem(name: "max_depth", value: "\(maxDepth)"),
+                URLQueryItem(name: "element_id", value: elementId)
+            ])
+            let contextData: Data
+            switch contextResult {
+            case .success(let data):
+                contextData = data
+            case .failure(let error):
+                return .init(content: [.text("Context fetch failed: \(error.localizedDescription)")], isError: true)
+            }
+
+            guard let context = try JSONSerialization.jsonObject(with: contextData) as? [String: Any],
+                  context["status"] as? String == "success" else {
+                let text = String(data: contextData, encoding: .utf8) ?? "Invalid context response"
+                return .init(content: [.text(text)], isError: true)
+            }
+
+            let targetId = elementId ?? context["screenshot_element_id"] as? String
+            guard let targetId, !targetId.isEmpty else {
+                return .init(content: [.text("No root element is available for capture")], isError: true)
+            }
+
+            let outputURL = URL(fileURLWithPath: directory).standardizedFileURL
+            try FileManager.default.createDirectory(
+                at: outputURL, withIntermediateDirectories: true
+            )
+
+            let contextURL = outputURL.appendingPathComponent("context.json")
+            let normalizedContextData = try JSONSerialization.data(
+                withJSONObject: context, options: [.prettyPrinted, .sortedKeys]
+            )
+            try normalizedContextData.write(to: contextURL)
+
+            let elementResult = await fetchLocalHTTP(
+                path: "/api/element/\(targetId)", queryItems: []
+            )
+            let elementURL = outputURL.appendingPathComponent("element.json")
+            if case .success(let data) = elementResult,
+               let object = try? JSONSerialization.jsonObject(with: data),
+               let normalized = try? JSONSerialization.data(
+                   withJSONObject: object, options: [.prettyPrinted, .sortedKeys]
+               ) {
+                try normalized.write(to: elementURL)
+            }
+
+            let screenshotResult = await fetchLocalHTTP(
+                path: "/api/element/\(targetId)/screenshot", queryItems: []
+            )
+            let screenshotData: Data
+            switch screenshotResult {
+            case .success(let data):
+                guard let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      payload["status"] as? String == "success",
+                      let encoded = payload["data"] as? String,
+                      let decoded = Data(base64Encoded: encoded) else {
+                    let text = String(data: data, encoding: .utf8) ?? "Invalid screenshot response"
+                    return .init(content: [.text(text)], isError: true)
+                }
+                screenshotData = decoded
+            case .failure(let error):
+                return .init(content: [.text("Screenshot fetch failed: \(error.localizedDescription)")], isError: true)
+            }
+
+            let screenshotURL = outputURL.appendingPathComponent("screenshot.png")
+            try screenshotData.write(to: screenshotURL)
+
+            var files = [
+                "context": contextURL.path,
+                "screenshot": screenshotURL.path
+            ]
+            if FileManager.default.fileExists(atPath: elementURL.path) {
+                files["element"] = elementURL.path
+            }
+            let manifestURL = outputURL.appendingPathComponent("manifest.json")
+            let manifest: [String: Any] = [
+                "schema_version": 1,
+                "captured_at": ISO8601DateFormatter().string(from: Date()),
+                "server_url": apiServerURL,
+                "target_element_id": targetId,
+                "max_depth": maxDepth,
+                "refreshed": refresh,
+                "files": files
+            ]
+            let manifestData = try JSONSerialization.data(
+                withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys]
+            )
+            try manifestData.write(to: manifestURL)
+            files["manifest"] = manifestURL.path
+
+            let response: [String: Any] = [
+                "status": "success",
+                "target_element_id": targetId,
+                "files": files
+            ]
+            let responseData = try JSONSerialization.data(
+                withJSONObject: response, options: [.prettyPrinted, .sortedKeys]
+            )
+            return .init(
+                content: [.text(String(data: responseData, encoding: .utf8) ?? "")],
+                isError: false
+            )
+        } catch {
+            return .init(content: [.text("Capture failed: \(error.localizedDescription)")], isError: true)
+        }
+    }
     
     private func fetchLocalHTTP(path: String, queryItems: [URLQueryItem], method: String = "GET") async -> Result<Data, Error> {
-        var components = URLComponents(string: "http://localhost:10086\(path)")!
+        var components = URLComponents(string: "\(apiServerURL)\(path)")!
         if !queryItems.isEmpty {
             let filteredItems = queryItems.filter { $0.value != nil }
             if !filteredItems.isEmpty {
@@ -487,7 +695,9 @@ public class LKMCPManager: NSObject {
         switch result {
         case .success(let data):
             if let text = String(data: data, encoding: .utf8) {
-                return .init(content: [.text(text)], isError: false)
+                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                let isError = json?["status"] as? String == "error" || json?["error"] != nil
+                return .init(content: [.text(text)], isError: isError)
             } else {
                 return .init(content: [.text("Failed to decode response")], isError: true)
             }

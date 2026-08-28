@@ -10,7 +10,6 @@
 #import "LKAppMenuManager.h"
 #import "LKConnectionManager.h"
 #import "LKLaunchWindowController.h"
-#import "LKMCPHTTPServer.h"
 #import "LKNavigationManager.h"
 #import "LKPreferenceManager.h"
 #import "Lookin-Swift.h"
@@ -67,8 +66,6 @@
     MSACAppCenter.enabled = NO;
   }
 
-  // 启动 MCP HTTP 服务器
-  [[LKMCPHTTPServer sharedInstance] startServerOnPort:10086];
   [[LKMCPManager sharedManager] startServerIfNeeded];
 
 #ifdef DEBUG
@@ -92,8 +89,6 @@
 
 - (NSApplicationTerminateReply)applicationShouldTerminate:
     (NSApplication *)sender {
-  // 停止 MCP HTTP 服务器
-  [[LKMCPHTTPServer sharedInstance] stopServer];
   [[LKMCPManager sharedManager] stopServer];
 
   // 清理打开 UIImageView 的图片时创建的临时文件

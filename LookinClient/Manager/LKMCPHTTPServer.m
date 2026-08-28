@@ -16,6 +16,10 @@
 @property(nonatomic, assign) BOOL isRunning;
 @property(nonatomic, assign) NSUInteger port;
 
+- (NSDictionary *)summaryForHierarchy:(NSArray *)hierarchy;
+- (void)accumulateElement:(NSDictionary *)element
+                    stats:(NSMutableDictionary *)stats;
+
 @end
 
 @implementation LKMCPHTTPServer
@@ -49,8 +53,8 @@
              requestClass:[GCDWebServerRequest class]
              processBlock:^GCDWebServerResponse *(
                  GCDWebServerRequest *request) {
-               NSInteger maxDepth =
-                   [request.query[@"max_depth"] integerValue] ?: -1;
+               NSString *depthValue = request.query[@"max_depth"];
+               NSInteger maxDepth = depthValue ? depthValue.integerValue : -1;
                NSString *filterClass = request.query[@"filter_class"];
                NSString *elementID = request.query[@"element_id"];
 
@@ -61,6 +65,60 @@
 
                return [GCDWebServerDataResponse
                    responseWithJSONObject:[self parseJSON:jsonString]];
+             }];
+
+  // GET /api/context - synchronized, bounded context for AI debugging.
+  [self.webServer
+      addHandlerForMethod:@"GET"
+                     path:@"/api/context"
+             requestClass:[GCDWebServerRequest class]
+             processBlock:^GCDWebServerResponse *(
+                 GCDWebServerRequest *request) {
+               NSString *depthValue = request.query[@"max_depth"];
+               NSInteger maxDepth = depthValue ? depthValue.integerValue : 8;
+               NSString *elementID = request.query[@"element_id"];
+
+               NSDictionary *hierarchyPayload = [self
+                   parseJSON:[bridge exportHierarchyWithMaxDepth:maxDepth
+                                                     filterClass:nil
+                                                       elementID:elementID]];
+               if (![hierarchyPayload[@"status"] isEqualToString:@"success"]) {
+                 return [GCDWebServerDataResponse
+                     responseWithJSONObject:hierarchyPayload];
+               }
+
+               NSArray *hierarchy = hierarchyPayload[@"hierarchy"] ?: @[];
+               NSMutableDictionary *context = [NSMutableDictionary dictionary];
+               context[@"status"] = @"success";
+               context[@"schema_version"] = @1;
+               context[@"captured_at"] =
+                   [[NSISO8601DateFormatter new] stringFromDate:[NSDate date]];
+               context[@"scope"] = elementID.length > 0 ? @"element" : @"screen";
+               context[@"hierarchy"] = hierarchy;
+               context[@"summary"] = [self summaryForHierarchy:hierarchy];
+
+               NSString *screenshotElementID = elementID;
+               if (screenshotElementID.length == 0) {
+                 NSDictionary *summary = context[@"summary"];
+                 screenshotElementID = [summary[@"root_element_ids"] firstObject];
+               }
+               if (screenshotElementID.length > 0) {
+                 context[@"screenshot_element_id"] = screenshotElementID;
+                 context[@"screenshot_endpoint"] = [NSString
+                     stringWithFormat:@"/api/element/%@/screenshot",
+                                      screenshotElementID];
+               }
+
+               if (elementID.length > 0) {
+                 NSDictionary *elementPayload = [self
+                     parseJSON:[bridge exportElementInfoWithOID:elementID]];
+                 if ([elementPayload[@"status"] isEqualToString:@"success"]) {
+                   context[@"focused_element"] = elementPayload;
+                 }
+               }
+
+               return [GCDWebServerDataResponse
+                   responseWithJSONObject:context];
              }];
 
   // GET /api/element/:oid/image
@@ -228,9 +286,23 @@
              requestClass:[GCDWebServerRequest class]
              processBlock:^GCDWebServerResponse *(
                  GCDWebServerRequest *request) {
+               NSDictionary *hierarchyPayload = [self
+                   parseJSON:[bridge exportHierarchyWithMaxDepth:0
+                                                     filterClass:nil
+                                                       elementID:nil]];
+               BOOL hierarchyReady =
+                   [hierarchyPayload[@"status"] isEqualToString:@"success"];
                return [GCDWebServerDataResponse responseWithJSONObject:@{
                  @"status" : @"ok",
-                 @"service" : @"Lookin MCP Server"
+                 @"service" : @"Lookin AI Bridge",
+                 @"api_version" : @1,
+                 @"hierarchy_ready" : @(hierarchyReady),
+                 @"state" : hierarchyReady ? @"ready" : @"waiting_for_app",
+                 @"api_url" : @"http://127.0.0.1:10086",
+                 @"capabilities" : @[
+                   @"hierarchy", @"context", @"element", @"search",
+                   @"relative_position", @"reload", @"image", @"screenshot"
+                 ]
                }];
              }];
 }
@@ -242,7 +314,12 @@
   }
 
   NSError *error = nil;
-  BOOL success = [self.webServer startWithPort:port bonjourName:nil];
+  BOOL success = [self.webServer
+      startWithOptions:@{
+        GCDWebServerOption_Port : @(port),
+        GCDWebServerOption_BindToLocalhost : @YES
+      }
+                  error:&error];
 
   if (success) {
     self.isRunning = YES;
@@ -270,6 +347,57 @@
 }
 
 #pragma mark - Helper Methods
+
+- (NSDictionary *)summaryForHierarchy:(NSArray *)hierarchy {
+  NSMutableDictionary *stats = [@{
+    @"element_count" : @0,
+    @"visible_element_count" : @0,
+    @"text_element_count" : @0,
+    @"max_depth" : @0
+  } mutableCopy];
+  NSMutableArray *rootIDs = [NSMutableArray array];
+
+  for (id value in hierarchy) {
+    if (![value isKindOfClass:[NSDictionary class]]) {
+      continue;
+    }
+    NSDictionary *element = value;
+    NSString *oid = element[@"oid"];
+    if (oid.length > 0) {
+      [rootIDs addObject:oid];
+    }
+    [self accumulateElement:element stats:stats];
+  }
+
+  stats[@"root_count"] = @(hierarchy.count);
+  stats[@"root_element_ids"] = rootIDs;
+  return stats;
+}
+
+- (void)accumulateElement:(NSDictionary *)element
+                    stats:(NSMutableDictionary *)stats {
+  stats[@"element_count"] = @([stats[@"element_count"] integerValue] + 1);
+  BOOL visible = ![element[@"isHidden"] boolValue] &&
+                 [element[@"alpha"] doubleValue] > 0.01;
+  if (visible) {
+    stats[@"visible_element_count"] =
+        @([stats[@"visible_element_count"] integerValue] + 1);
+  }
+  NSString *text = element[@"text"];
+  if (text.length > 0) {
+    stats[@"text_element_count"] =
+        @([stats[@"text_element_count"] integerValue] + 1);
+  }
+  NSInteger depth = [element[@"depth"] integerValue];
+  stats[@"max_depth"] = @(MAX(depth, [stats[@"max_depth"] integerValue]));
+
+  NSArray *children = element[@"children"];
+  for (id value in children) {
+    if ([value isKindOfClass:[NSDictionary class]]) {
+      [self accumulateElement:value stats:stats];
+    }
+  }
+}
 
 - (NSDictionary *)parseJSON:(NSString *)jsonString {
   if (!jsonString) {

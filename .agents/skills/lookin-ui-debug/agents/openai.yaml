@@ -1,0 +1,8 @@
+interface:
+  display_name: "Lookin UI Debug"
+  short_description: "Inspect and reproduce live iOS interfaces with Lookin"
+  brand_color: "#147EFB"
+  default_prompt: "Use $lookin-ui-debug to capture and reproduce the iOS interface currently open in Lookin."
+
+policy:
+  allow_implicit_invocation: true
