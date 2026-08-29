@@ -64,6 +64,7 @@ static NSUInteger const kTag_MCP = 80;
 static NSUInteger const kTag_MCPToggleServer = 81;
 static NSUInteger const kTag_MCPExportHierarchy = 82;
 static NSUInteger const kTag_MCPServerStatus = 83;
+static NSUInteger const kTag_MCPExportImages = 84;
 
 @interface LKAppMenuManager ()
 
@@ -460,6 +461,14 @@ static NSUInteger const kTag_MCPServerStatus = 83;
   exportItem.tag = kTag_MCPExportHierarchy;
   [mcpMenu addItem:exportItem];
 
+  NSMenuItem *exportImagesItem =
+      [[NSMenuItem alloc] initWithTitle:@"批量导出当前界面图片…"
+                                 action:@selector(_handleMCPExportImages:)
+                          keyEquivalent:@""];
+  exportImagesItem.target = self;
+  exportImagesItem.tag = kTag_MCPExportImages;
+  [mcpMenu addItem:exportImagesItem];
+
   // 添加到帮助菜单
   NSMenuItem *mcpMenuItem = [[NSMenuItem alloc] initWithTitle:@"MCP"
                                                        action:nil
@@ -515,6 +524,63 @@ static NSUInteger const kTag_MCPServerStatus = 83;
     alert.alertStyle = NSAlertStyleWarning;
     [alert addButtonWithTitle:@"确定"];
     [alert runModal];
+  }
+}
+
+- (void)_handleMCPExportImages:(NSMenuItem *)sender {
+  NSOpenPanel *panel = [NSOpenPanel openPanel];
+  panel.canChooseFiles = NO;
+  panel.canChooseDirectories = YES;
+  panel.canCreateDirectories = YES;
+  panel.allowsMultipleSelection = NO;
+  panel.prompt = @"导出";
+  panel.message = @"选择用于保存当前界面全部 UIImageView 图片的文件夹";
+
+  void (^panelCompletion)(NSModalResponse) = ^(NSModalResponse result) {
+    if (result != NSModalResponseOK || !panel.URL) {
+      return;
+    }
+    NSString *directory = panel.URL.path;
+    [[LKMCPBridge sharedInstance]
+        exportAllImagesToDirectory:directory
+                        completion:^(NSString *jsonString) {
+                          NSData *data =
+                              [jsonString dataUsingEncoding:NSUTF8StringEncoding];
+                          NSDictionary *payload = data
+                                                      ? [NSJSONSerialization
+                                                            JSONObjectWithData:data
+                                                                       options:0
+                                                                         error:nil]
+                                                      : nil;
+                          dispatch_async(dispatch_get_main_queue(), ^{
+                            NSString *status = payload[@"status"];
+                            BOOL success = [status isEqualToString:@"success"] ||
+                                           [status isEqualToString:@"partial_success"];
+                            NSAlert *alert = [[NSAlert alloc] init];
+                            alert.messageText = success ? @"图片导出完成" : @"图片导出失败";
+                            alert.informativeText = payload[@"message"] ?: @"未知错误";
+                            alert.alertStyle = success ? NSAlertStyleInformational
+                                                       : NSAlertStyleWarning;
+                            [alert addButtonWithTitle:@"确定"];
+                            if (success) {
+                              [alert addButtonWithTitle:@"在 Finder 中显示"];
+                            }
+                            NSModalResponse response = [alert runModal];
+                            if (success && response == NSAlertSecondButtonReturn) {
+                              [[NSWorkspace sharedWorkspace]
+                                  activateFileViewerSelectingURLs:@[
+                                    [NSURL fileURLWithPath:directory]
+                                  ]];
+                            }
+                          });
+                        }];
+  };
+
+  if (NSApp.keyWindow) {
+    [panel beginSheetModalForWindow:NSApp.keyWindow
+                 completionHandler:panelCompletion];
+  } else {
+    [panel beginWithCompletionHandler:panelCompletion];
   }
 }
 

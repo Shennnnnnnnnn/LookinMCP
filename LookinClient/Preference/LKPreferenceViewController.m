@@ -232,7 +232,7 @@
   } else if (mode == 2) {
     self.aiCopyValue = @"$lookin-ui-debug";
     detail = [NSString
-        stringWithFormat:@"%@\nProject skill  .agents/skills/lookin-ui-debug\n\nInvoke  %@",
+        stringWithFormat:@"%@\nGlobal skill  ~/.agents/skills/lookin-ui-debug\n\nInvoke  %@",
                          status, self.aiCopyValue];
   } else {
     self.aiCopyValue = [NSString

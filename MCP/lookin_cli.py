@@ -59,6 +59,11 @@ def _parser() -> argparse.ArgumentParser:
     image = commands.add_parser("image", help="Save an element's image content")
     _add_asset_arguments(image)
 
+    images = commands.add_parser(
+        "images", help="Export image values from every UIImageView as PNG files"
+    )
+    images.add_argument("--output", type=Path, required=True)
+
     screenshot = commands.add_parser(
         "screenshot", help="Save an element and descendant screenshot"
     )
@@ -131,6 +136,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "image":
             path = client.save_image(args.element_id, args.output)
             result = {"status": "success", "path": str(path)}
+        elif args.command == "images":
+            result = client.export_all_images(args.output.expanduser().resolve())
         elif args.command == "screenshot":
             path = client.save_screenshot(args.element_id, args.output)
             result = {"status": "success", "path": str(path)}

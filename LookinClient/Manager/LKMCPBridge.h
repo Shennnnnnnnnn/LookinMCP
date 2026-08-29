@@ -64,6 +64,14 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)exportImageFromViewWithOID:(NSString *)oid
                         completion:(void (^)(NSString *jsonString))completion;
 
+/**
+ * 尝试将当前层级中所有 UIImageView/子类的 image 导出为 PNG；nil/失败项进入错误清单。
+ * @param directory 目标文件夹
+ * @param completion 回调，返回导出清单 JSON
+ */
+- (void)exportAllImagesToDirectory:(NSString *)directory
+                        completion:(void (^)(NSString *jsonString))completion;
+
 /// 导出指定 OID 视图及其子视图的截图 (PNG 格式的 Base64 编码)
 - (NSString *)exportScreenshotWithOID:(NSString *)oid;
 

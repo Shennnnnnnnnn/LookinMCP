@@ -24,7 +24,8 @@ app = Server(
     instructions=(
         "Use get_status when Lookin readiness is uncertain. For UI reproduction, "
         "prefer one capture_ui_context call so screenshot and hierarchy describe "
-        "the same UI state. Keep hierarchy queries bounded by element_id or "
+        "the same UI state. Use export_all_images for original UIImageView assets. "
+        "Keep hierarchy queries bounded by element_id or "
         "max_depth. Reload only before final validation or capture. File-producing "
         "tools write only to the directory supplied by the user."
     ),
@@ -114,8 +115,8 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="get_relative_position",
             description=(
-                "Compare two absolute frames and return horizontal, vertical, "
-                "distance, and overlap relationships."
+                "Compare two root-coordinate axis-aligned frames and return stable "
+                "relation, touching, minimum-distance, overlap-area, and coverage fields."
             ),
             inputSchema=_schema(
                 {
@@ -158,6 +159,17 @@ async def list_tools() -> list[Tool]:
                     "filename": {"type": "string"},
                 },
                 ["element_id"],
+            ),
+        ),
+        Tool(
+            name="export_all_images",
+            description=(
+                "Export image values from every UIImageView or subclass in the current "
+                "hierarchy as PNG files; nil and failed items are returned as errors."
+            ),
+            inputSchema=_schema(
+                {"directory": {"type": "string"}},
+                ["directory"],
             ),
         ),
         Tool(
@@ -237,6 +249,8 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 client.save_image, args["element_id"], directory / filename
             )
             result = {"status": "success", "path": str(path)}
+        elif name == "export_all_images":
+            result = await _run(client.export_all_images, args["directory"])
         elif name == "export_screenshot":
             directory = Path(args["directory"])
             filename = args.get("filename") or f"screenshot_{args['element_id']}.png"

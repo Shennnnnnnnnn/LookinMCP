@@ -13,6 +13,7 @@
 #endif
 #import "LKAppsManager.h"
 #import "LKInspectableApp.h"
+#import "LKMCPGeometry.h"
 #import "LKStaticHierarchyDataSource.h"
 #import "LookinAttribute.h"
 #import "LookinAttributeModification.h"
@@ -215,8 +216,6 @@
 }
 
 - (NSString *)exportElementInfoWithOID:(NSString *)oid {
-  LKStaticHierarchyDataSource *dataSource =
-      [LKStaticHierarchyDataSource sharedInstance];
   LookinDisplayItem *item = [self findDisplayItemWithOID:oid];
 
   if (!item) {
@@ -480,31 +479,10 @@
 }
 
 - (CGRect)calculateAbsoluteFrameForItem:(LookinDisplayItem *)item {
-  if (!item || CGRectIsNull(item.frame)) {
+  if (!item || ![item hasValidFrameToRoot]) {
     return CGRectNull;
   }
-
-  CGRect rect = item.frame;
-  LookinDisplayItem *superItem = item.superItem;
-
-  // 不断向上叠加 origin 的 x 和 y，跳过 bounds/scrollView
-  // offset的严谨处理（这里做个近似的绝对坐标用于简化给模型的表示）
-  while (superItem) {
-    if (!CGRectIsNull(superItem.frame)) {
-      rect.origin.x += superItem.frame.origin.x;
-      rect.origin.y += superItem.frame.origin.y;
-
-      // 如果是 scrollView 可能还需要减去 bounds.origin
-      // 不过对于分析布局结构来说，近似的绝对值位置足够了。
-      if (!CGRectIsNull(superItem.bounds)) {
-        rect.origin.x -= superItem.bounds.origin.x;
-        rect.origin.y -= superItem.bounds.origin.y;
-      }
-    }
-    superItem = superItem.superItem;
-  }
-
-  return rect;
+  return [item calculateFrameToRoot];
 }
 
 - (NSString *)calculateRelativePositionBetween:(NSString *)oid1
@@ -528,77 +506,7 @@
   result[@"element_1"] = oid1;
   result[@"element_2"] = oid2;
 
-  NSMutableDictionary *relationship = [NSMutableDictionary dictionary];
-
-  // 记录每个元素的绝对坐标边界，以便模型自行判断
-  relationship[@"element_1_bounds"] = @{
-    @"left" : @(CGRectGetMinX(frame1)),
-    @"right" : @(CGRectGetMaxX(frame1)),
-    @"top" : @(CGRectGetMinY(frame1)),
-    @"bottom" : @(CGRectGetMaxY(frame1)),
-    @"width" : @(CGRectGetWidth(frame1)),
-    @"height" : @(CGRectGetHeight(frame1))
-  };
-
-  relationship[@"element_2_bounds"] = @{
-    @"left" : @(CGRectGetMinX(frame2)),
-    @"right" : @(CGRectGetMaxX(frame2)),
-    @"top" : @(CGRectGetMinY(frame2)),
-    @"bottom" : @(CGRectGetMaxY(frame2)),
-    @"width" : @(CGRectGetWidth(frame2)),
-    @"height" : @(CGRectGetHeight(frame2))
-  };
-
-  // 水平关系
-  if (CGRectGetMaxX(frame1) <= CGRectGetMinX(frame2)) {
-    relationship[@"horizontal"] = @"element_1 在 element_2 左侧";
-    relationship[@"horizontal_distance_point"] =
-        @(CGRectGetMinX(frame2) - CGRectGetMaxX(frame1));
-  } else if (CGRectGetMinX(frame1) >= CGRectGetMaxX(frame2)) {
-    relationship[@"horizontal"] = @"element_1 在 element_2 右侧";
-    relationship[@"horizontal_distance_point"] =
-        @(CGRectGetMinX(frame1) - CGRectGetMaxX(frame2));
-  } else {
-    relationship[@"horizontal"] = @"element_1 与 element_2 水平存在交集";
-    relationship[@"horizontal_distance_point"] = @0;
-  }
-
-  // 垂直关系
-  if (CGRectGetMaxY(frame1) <= CGRectGetMinY(frame2)) {
-    relationship[@"vertical"] = @"element_1 在 element_2 上方";
-    relationship[@"vertical_distance_point"] =
-        @(CGRectGetMinY(frame2) - CGRectGetMaxY(frame1));
-  } else if (CGRectGetMinY(frame1) >= CGRectGetMaxY(frame2)) {
-    relationship[@"vertical"] = @"element_1 在 element_2 下方";
-    relationship[@"vertical_distance_point"] =
-        @(CGRectGetMinY(frame1) - CGRectGetMaxY(frame2));
-  } else {
-    relationship[@"vertical"] = @"element_1 与 element_2 垂直存在交集";
-    relationship[@"vertical_distance_point"] = @0;
-  }
-
-  // 是否重叠
-  BOOL overlap = CGRectIntersectsRect(frame1, frame2);
-  relationship[@"overlap"] = @(overlap);
-
-  if (overlap) {
-    // 面积覆盖判断（是否包含）
-    if (CGRectContainsRect(frame1, frame2)) {
-      relationship[@"containment"] = @"element_1 完全包含 element_2";
-    } else if (CGRectContainsRect(frame2, frame1)) {
-      relationship[@"containment"] = @"element_2 完全包含 element_1";
-    } else {
-      relationship[@"containment"] = @"部分重叠";
-
-      CGRect intersection = CGRectIntersection(frame1, frame2);
-      relationship[@"intersection_size"] = @{
-        @"width" : @(intersection.size.width),
-        @"height" : @(intersection.size.height)
-      };
-    }
-  }
-
-  result[@"relationship"] = relationship;
+  result[@"relationship"] = LKMCPRelationshipForFrames(frame1, frame2);
 
   return [self jsonStringFromDictionary:result];
 }
@@ -961,6 +869,277 @@
                                                  error.localizedDescription
                                                      ?: @"未知错误"]]);
       }];
+}
+
+- (void)exportAllImagesToDirectory:(NSString *)directory
+                        completion:(void (^)(NSString *jsonString))completion {
+  if (!completion) {
+    return;
+  }
+  if (directory.length == 0) {
+    completion([self errorJSON:@"缺少导出目录"]);
+    return;
+  }
+  if (![LKAppsManager sharedInstance].inspectingApp) {
+    completion([self errorJSON:@"没有正在检查的应用"]);
+    return;
+  }
+
+  NSString *outputDirectory =
+      [[directory stringByExpandingTildeInPath] stringByStandardizingPath];
+  if (![outputDirectory isAbsolutePath]) {
+    outputDirectory = [[[NSFileManager defaultManager] currentDirectoryPath]
+        stringByAppendingPathComponent:outputDirectory];
+  }
+
+  BOOL isDirectory = NO;
+  NSFileManager *fileManager = [NSFileManager defaultManager];
+  if ([fileManager fileExistsAtPath:outputDirectory
+                        isDirectory:&isDirectory]) {
+    if (!isDirectory) {
+      completion([self errorJSON:@"导出路径已存在且不是文件夹"]);
+      return;
+    }
+  } else {
+    NSError *directoryError = nil;
+    if (![fileManager createDirectoryAtPath:outputDirectory
+                withIntermediateDirectories:YES
+                                 attributes:nil
+                                      error:&directoryError]) {
+      completion([self
+          errorJSON:[NSString stringWithFormat:@"创建导出目录失败: %@",
+                                                directoryError.localizedDescription
+                                                    ?: @"未知错误"]]);
+      return;
+    }
+  }
+
+  NSArray<NSDictionary *> *descriptors = [self currentImageDescriptors];
+  if (descriptors.count == 0) {
+    completion([self jsonStringFromDictionary:@{
+      @"status" : @"success",
+      @"message" : @"当前界面没有包含图片的 UIImageView",
+      @"directory" : outputDirectory,
+      @"found_count" : @0,
+      @"exported_count" : @0,
+      @"failed_count" : @0,
+      @"files" : @[],
+      @"errors" : @[]
+    }]);
+    return;
+  }
+
+  NSMutableArray<NSDictionary *> *files = [NSMutableArray array];
+  NSMutableArray<NSDictionary *> *errors = [NSMutableArray array];
+  [self exportImageDescriptors:descriptors
+                         index:0
+                     directory:outputDirectory
+                         files:files
+                        errors:errors
+                    completion:^{
+                      NSString *status = errors.count == 0
+                                             ? @"success"
+                                             : (files.count > 0 ? @"partial_success"
+                                                                : @"error");
+                      NSString *message = errors.count == 0
+                                              ? @"图片批量导出完成"
+                                              : [NSString
+                                                    stringWithFormat:
+                                                        @"导出完成，%lu 个成功，%lu 个失败",
+                                                        (unsigned long)files.count,
+                                                        (unsigned long)errors.count];
+                      completion([self jsonStringFromDictionary:@{
+                        @"status" : status,
+                        @"message" : message,
+                        @"directory" : outputDirectory,
+                        @"found_count" : @(descriptors.count),
+                        @"exported_count" : @(files.count),
+                        @"failed_count" : @(errors.count),
+                        @"files" : files,
+                        @"errors" : errors
+                      }]);
+                    }];
+}
+
+- (NSArray<NSDictionary *> *)currentImageDescriptors {
+  LookinHierarchyInfo *hierarchyInfo =
+      [LKStaticHierarchyDataSource sharedInstance].rawHierarchyInfo;
+  if (hierarchyInfo.displayItems.count == 0) {
+    return @[];
+  }
+
+  NSMutableArray<NSDictionary *> *results = [NSMutableArray array];
+  NSMutableSet<NSString *> *seenImageViewOIDs = [NSMutableSet set];
+  for (LookinDisplayItem *item in hierarchyInfo.displayItems) {
+    [self collectImageDescriptorsFromItem:item
+                                     seen:seenImageViewOIDs
+                                  results:results];
+  }
+  return results;
+}
+
+- (void)collectImageDescriptorsFromItem:(LookinDisplayItem *)item
+                                    seen:(NSMutableSet<NSString *> *)seen
+                                 results:(NSMutableArray<NSDictionary *> *)results {
+  if (!item) {
+    return;
+  }
+
+  NSString *imageViewOID = nil;
+  NSString *imageName = nil;
+  for (LookinAttributesGroup *group in [item queryAllAttrGroupList]) {
+    for (LookinAttributesSection *section in group.attrSections) {
+      for (LookinAttribute *attribute in section.attributes) {
+        if ([attribute.identifier isEqualToString:@"iv_o_o"] &&
+            [attribute.value respondsToSelector:@selector(unsignedLongLongValue)] &&
+            [attribute.value unsignedLongLongValue] > 0) {
+          imageViewOID = [NSString stringWithFormat:@"%@", attribute.value];
+        } else if ([attribute.identifier isEqualToString:@"iv_n_n"] &&
+                   [attribute.value isKindOfClass:[NSString class]]) {
+          imageName = attribute.value;
+        }
+      }
+    }
+  }
+
+  BOOL isImageView = [item.viewObject.classChainList containsObject:@"UIImageView"];
+  if (imageViewOID.length == 0 && isImageView && item.viewObject.oid > 0) {
+    imageViewOID = [NSString stringWithFormat:@"%lu", item.viewObject.oid];
+  }
+
+  if (imageViewOID.length > 0 && ![seen containsObject:imageViewOID]) {
+    [seen addObject:imageViewOID];
+    NSString *elementOID = nil;
+    if (item.viewObject) {
+      elementOID = [NSString stringWithFormat:@"%lu", item.viewObject.oid];
+    } else if (item.layerObject) {
+      elementOID = [NSString stringWithFormat:@"%lu", item.layerObject.oid];
+    }
+    NSString *className = item.viewObject.lk_simpleDemangledClassName
+                              ?: (item.layerObject.lk_simpleDemangledClassName
+                                      ?: item.className);
+    if (elementOID.length > 0) {
+      [results addObject:@{
+        @"element_id" : elementOID,
+        @"image_view_oid" : imageViewOID,
+        @"class_name" : className ?: @"UIImageView",
+        @"image_name" : imageName ?: @""
+      }];
+    }
+  }
+
+  for (LookinDisplayItem *child in item.subitems) {
+    [self collectImageDescriptorsFromItem:child seen:seen results:results];
+  }
+}
+
+- (void)exportImageDescriptors:(NSArray<NSDictionary *> *)descriptors
+                          index:(NSUInteger)index
+                      directory:(NSString *)directory
+                          files:(NSMutableArray<NSDictionary *> *)files
+                         errors:(NSMutableArray<NSDictionary *> *)errors
+                     completion:(void (^)(void))completion {
+  if (index >= descriptors.count) {
+    completion();
+    return;
+  }
+
+  NSDictionary *descriptor = descriptors[index];
+  [self exportImageFromViewWithOID:descriptor[@"element_id"]
+                        completion:^(NSString *jsonString) {
+                          NSDictionary *payload = nil;
+                          NSData *jsonData =
+                              [jsonString dataUsingEncoding:NSUTF8StringEncoding];
+                          if (jsonData) {
+                            payload = [NSJSONSerialization JSONObjectWithData:jsonData
+                                                                      options:0
+                                                                        error:nil];
+                          }
+
+                          NSString *errorMessage = nil;
+                          NSString *base64 = payload[@"data"];
+                          if (![payload[@"status"] isEqualToString:@"success"] ||
+                              base64.length == 0) {
+                            errorMessage = payload[@"message"] ?: @"无法获取图片数据";
+                          }
+
+                          NSData *pngData =
+                              errorMessage ? nil
+                                           : [[NSData alloc]
+                                                 initWithBase64EncodedString:base64
+                                                                    options:0];
+                          if (!errorMessage && !pngData) {
+                            errorMessage = @"图片 Base64 解码失败";
+                          }
+
+                          NSString *filename = [self filenameForImageDescriptor:descriptor
+                                                                          index:index];
+                          NSString *path =
+                              [directory stringByAppendingPathComponent:filename];
+                          if (!errorMessage) {
+                            NSError *writeError = nil;
+                            if (![pngData writeToFile:path
+                                             options:NSDataWritingAtomic
+                                               error:&writeError]) {
+                              errorMessage = [NSString
+                                  stringWithFormat:@"写入 PNG 失败: %@",
+                                                   writeError.localizedDescription
+                                                       ?: @"未知错误"];
+                            }
+                          }
+
+                          if (errorMessage) {
+                            [errors addObject:@{
+                              @"element_id" : descriptor[@"element_id"],
+                              @"image_view_oid" : descriptor[@"image_view_oid"],
+                              @"message" : errorMessage
+                            }];
+                          } else {
+                            NSMutableDictionary *fileInfo = [descriptor mutableCopy];
+                            fileInfo[@"filename"] = filename;
+                            fileInfo[@"path"] = path;
+                            [files addObject:fileInfo];
+                          }
+
+                          [self exportImageDescriptors:descriptors
+                                                 index:index + 1
+                                             directory:directory
+                                                 files:files
+                                                errors:errors
+                                            completion:completion];
+                        }];
+}
+
+- (NSString *)filenameForImageDescriptor:(NSDictionary *)descriptor
+                                    index:(NSUInteger)index {
+  NSString *name = descriptor[@"image_name"];
+  if (name.length == 0) {
+    name = descriptor[@"class_name"] ?: @"image";
+  }
+  name = [name stringByDeletingPathExtension];
+
+  NSMutableString *safeName = [NSMutableString string];
+  NSCharacterSet *allowed = [NSCharacterSet
+      characterSetWithCharactersInString:
+          @"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"];
+  for (NSUInteger characterIndex = 0; characterIndex < name.length;
+       characterIndex++) {
+    unichar character = [name characterAtIndex:characterIndex];
+    if ([allowed characterIsMember:character]) {
+      [safeName appendFormat:@"%C", character];
+    } else {
+      [safeName appendString:@"_"];
+    }
+  }
+  if (safeName.length == 0) {
+    [safeName appendString:@"image"];
+  } else if (safeName.length > 60) {
+    [safeName deleteCharactersInRange:NSMakeRange(60, safeName.length - 60)];
+  }
+
+  return [NSString stringWithFormat:@"%03lu_%@_%@.png",
+                                    (unsigned long)(index + 1), safeName,
+                                    descriptor[@"image_view_oid"]];
 }
 
 #pragma mark - Screenshot Export

@@ -8,6 +8,7 @@
 #import "LKMCPHTTPServer.h"
 #import "LKMCPBridge.h"
 #import <GCDWebServer/GCDWebServer.h>
+#import <GCDWebServer/GCDWebServerDataRequest.h>
 #import <GCDWebServer/GCDWebServerDataResponse.h>
 
 @interface LKMCPHTTPServer ()
@@ -161,6 +162,33 @@
                return response;
              }];
 
+  // POST /api/images/export
+  [self.webServer
+      addHandlerForMethod:@"POST"
+                     path:@"/api/images/export"
+             requestClass:[GCDWebServerDataRequest class]
+        asyncProcessBlock:^(GCDWebServerRequest *request,
+                            GCDWebServerCompletionBlock completionBlock) {
+          GCDWebServerDataRequest *dataRequest =
+              (GCDWebServerDataRequest *)request;
+          NSDictionary *body = [dataRequest.jsonObject
+                  isKindOfClass:[NSDictionary class]]
+                                   ? dataRequest.jsonObject
+                                   : nil;
+          NSString *directory = body[@"directory"];
+          if (directory.length == 0) {
+            completionBlock([self errorResponse:@"Missing directory"]);
+            return;
+          }
+
+          [bridge exportAllImagesToDirectory:directory
+                                  completion:^(NSString *jsonString) {
+                                    completionBlock([GCDWebServerDataResponse
+                                        responseWithJSONObject:
+                                            [self parseJSON:jsonString]]);
+                                  }];
+        }];
+
   // GET /api/element/:oid/screenshot
   [self.webServer
       addHandlerForMethod:@"GET"
@@ -301,7 +329,8 @@
                  @"api_url" : @"http://127.0.0.1:10086",
                  @"capabilities" : @[
                    @"hierarchy", @"context", @"element", @"search",
-                   @"relative_position", @"reload", @"image", @"screenshot"
+                   @"relative_position", @"reload", @"image", @"screenshot",
+                   @"batch_image_export"
                  ]
                }];
              }];

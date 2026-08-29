@@ -54,6 +54,7 @@ class LookinClient:
         *,
         query: Mapping[str, Any] | None = None,
         method: str = "GET",
+        body: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         filtered_query = {
             key: str(value)
@@ -64,7 +65,14 @@ class LookinClient:
         if filtered_query:
             url = f"{url}?{urlencode(filtered_query)}"
 
-        request = Request(url, method=method)
+        request_data = None
+        headers: dict[str, str] = {}
+        if body is not None:
+            request_data = json.dumps(
+                body, ensure_ascii=False, separators=(",", ":")
+            ).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        request = Request(url, data=request_data, headers=headers, method=method)
         try:
             with urlopen(request, timeout=self.timeout) as response:
                 raw = response.read()
@@ -157,6 +165,13 @@ class LookinClient:
     def save_screenshot(self, element_id: str, output_path: str | Path) -> Path:
         payload = self._request_json(f"/api/element/{element_id}/screenshot")
         return _write_base64_asset(payload, output_path)
+
+    def export_all_images(self, directory: str | Path) -> dict[str, Any]:
+        return self._request_json(
+            "/api/images/export",
+            method="POST",
+            body={"directory": str(directory)},
+        )
 
     def capture(
         self,

@@ -238,6 +238,7 @@
 		640851652F17B66800EE05D1 /* LKMCPBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = LKMCPBridge.m; sourceTree = "<group>"; };
 		640851672F17BC7B00EE05D1 /* LKMCPHTTPServer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LKMCPHTTPServer.h; sourceTree = "<group>"; };
 		640851682F17BC7B00EE05D1 /* LKMCPHTTPServer.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = LKMCPHTTPServer.m; sourceTree = "<group>"; };
+		64A100012F9ABC0100EE05D1 /* LKMCPGeometry.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LKMCPGeometry.h; sourceTree = "<group>"; };
 		7BFFDF0D2AF12AA10039B828 /* LookinAttributesGroup+LookinClient.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "LookinAttributesGroup+LookinClient.h"; sourceTree = "<group>"; };
 		7BFFDF0E2AF12AA10039B828 /* LookinAttributesGroup+LookinClient.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "LookinAttributesGroup+LookinClient.m"; sourceTree = "<group>"; };
 		7BFFDF102AF12E940039B828 /* LookinAttributesSection+LookinClient.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "LookinAttributesSection+LookinClient.h"; sourceTree = "<group>"; };
@@ -751,6 +752,7 @@
 		AA0757C122C607D7005535DC /* Manager */ = {
 			isa = PBXGroup;
 			children = (
+				64A100012F9ABC0100EE05D1 /* LKMCPGeometry.h */,
 				640851672F17BC7B00EE05D1 /* LKMCPHTTPServer.h */,
 				640851682F17BC7B00EE05D1 /* LKMCPHTTPServer.m */,
 				640851642F17B66800EE05D1 /* LKMCPBridge.h */,

@@ -180,7 +180,7 @@ public class LKMCPManager: NSObject {
         let newServer = Server(
             name: "lookin-mcp-server",
             version: "1.0.0",
-            instructions: "Use get_status when Lookin readiness is uncertain. For UI reproduction, prefer one capture_ui_context call so screenshot and hierarchy describe the same UI state. Keep hierarchy queries bounded by element_id or max_depth. Reload only before final validation or capture. File-producing tools write only to the directory supplied by the user.",
+            instructions: "Use get_status when Lookin readiness is uncertain. For UI reproduction, prefer one capture_ui_context call so screenshot and hierarchy describe the same UI state. Use export_all_images when original UIImageView assets are needed. Keep hierarchy queries bounded by element_id or max_depth. Reload only before final validation or capture. File-producing tools write only to the directory supplied by the user.",
             capabilities: .init(
                 tools: .init(listChanged: false)
             )
@@ -262,7 +262,7 @@ public class LKMCPManager: NSObject {
                 ),
                 Tool(
                     name: "get_relative_position",
-                    description: "Compare two elements using absolute frames and return horizontal, vertical, distance, and overlap relationships.",
+                    description: "Compare two root-coordinate axis-aligned frames. Returns stable horizontal, vertical, containment, touching, minimum-distance, overlap-area, and coverage fields.",
                     inputSchema: .object([
                         "type": .string("object"),
                         "properties": .object([
@@ -328,6 +328,20 @@ public class LKMCPManager: NSObject {
                             ])
                         ]),
                         "required": .array([.string("element_id")])
+                    ])
+                ),
+                Tool(
+                    name: "export_all_images",
+                    description: "Export image values from every UIImageView or subclass in the current hierarchy as PNG files; nil and failed items are returned in the error list.",
+                    inputSchema: .object([
+                        "type": .string("object"),
+                        "properties": .object([
+                            "directory": .object([
+                                "type": .string("string"),
+                                "description": .string("Directory for exported PNG files.")
+                            ])
+                        ]),
+                        "required": .array([.string("directory")])
                     ])
                 ),
                 Tool(
@@ -434,6 +448,17 @@ public class LKMCPManager: NSObject {
                     URLQueryItem(name: "query", value: query),
                     URLQueryItem(name: "search_type", value: searchType)
                 ])
+
+            case "export_all_images":
+                guard let directory = params.arguments?["directory"]?.stringValue else {
+                    return .init(content: [.text("Missing directory")], isError: true)
+                }
+                return await self.performLocalHTTPRequest(
+                    path: "/api/images/export",
+                    queryItems: [],
+                    method: "POST",
+                    jsonBody: ["directory": directory]
+                )
                 
             case "save_image":
                 guard let elementId = params.arguments?["element_id"]?.stringValue else {
@@ -661,7 +686,12 @@ public class LKMCPManager: NSObject {
         }
     }
     
-    private func fetchLocalHTTP(path: String, queryItems: [URLQueryItem], method: String = "GET") async -> Result<Data, Error> {
+    private func fetchLocalHTTP(
+        path: String,
+        queryItems: [URLQueryItem],
+        method: String = "GET",
+        jsonBody: [String: Any]? = nil
+    ) async -> Result<Data, Error> {
         var components = URLComponents(string: "\(apiServerURL)\(path)")!
         if !queryItems.isEmpty {
             let filteredItems = queryItems.filter { $0.value != nil }
@@ -676,6 +706,14 @@ public class LKMCPManager: NSObject {
         
         var request = URLRequest(url: url)
         request.httpMethod = method
+        if let jsonBody {
+            do {
+                request.httpBody = try JSONSerialization.data(withJSONObject: jsonBody)
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            } catch {
+                return .failure(error)
+            }
+        }
         
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -690,8 +728,15 @@ public class LKMCPManager: NSObject {
         }
     }
     
-    private func performLocalHTTPRequest(path: String, queryItems: [URLQueryItem], method: String = "GET") async -> CallTool.Result {
-        let result = await fetchLocalHTTP(path: path, queryItems: queryItems, method: method)
+    private func performLocalHTTPRequest(
+        path: String,
+        queryItems: [URLQueryItem],
+        method: String = "GET",
+        jsonBody: [String: Any]? = nil
+    ) async -> CallTool.Result {
+        let result = await fetchLocalHTTP(
+            path: path, queryItems: queryItems, method: method, jsonBody: jsonBody
+        )
         switch result {
         case .success(let data):
             if let text = String(data: data, encoding: .utf8) {

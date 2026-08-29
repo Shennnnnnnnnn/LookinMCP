@@ -4,7 +4,7 @@ Lookin exposes the UI currently open in the macOS inspector to AI tools through 
 
 - Streamable HTTP MCP for assistants and IDEs.
 - A dependency-free `lookin` CLI for scripts and terminal agents.
-- The repository skill at `.agents/skills/lookin-ui-debug` for repeatable debugging and UI reproduction.
+- An optional user-level `lookin-ui-debug` skill for repeatable debugging and UI reproduction.
 
 Both local servers are disabled by default and bind only to `127.0.0.1`. Enable **AI Integration** in Lookin Settings before using any interface.
 
@@ -33,6 +33,7 @@ The CLI requires Python 3.10 or newer and uses only the standard library:
 ./bin/lookin inspect <element-id>
 ./bin/lookin relative <first-element-id> <second-element-id>
 ./bin/lookin hierarchy --element-id <element-id> --max-depth 3
+./bin/lookin images --output .lookin-images
 ```
 
 For AI-assisted UI reproduction, create one synchronized capture:
@@ -71,6 +72,7 @@ The MCP tools are optimized around two workflows:
 
 - Focused debugging: `search_elements`, `get_element_info`, `get_relative_position`, and bounded `get_hierarchy` calls.
 - UI reproduction: `get_ui_context` or `capture_ui_context`, followed by focused element inspection when needed.
+- Image assets: `export_all_images` attempts every `UIImageView` or subclass, saves non-nil images as PNG, and returns a per-file success/error manifest.
 
 `get_status` reports whether Lookin is reachable and whether an inspected hierarchy is ready. The previous `modify_element_attribute` placeholder is no longer advertised because it never performed a mutation.
 
@@ -101,13 +103,13 @@ Example configuration:
 
 ## Skill
 
-Codex discovers the project skill automatically when launched inside this repository. Invoke it explicitly with:
+Install the skill at `$HOME/.agents/skills/lookin-ui-debug` so Codex can discover it from any repository. Invoke it explicitly with:
 
 ```text
 $lookin-ui-debug
 ```
 
-The skill prefers connected Lookin MCP tools and falls back to `./bin/lookin`. It requires screenshot and hierarchy evidence from the same capture before making pixel-level UI claims.
+The global skill prefers connected Lookin MCP tools and includes its own CLI fallback. It requires screenshot and hierarchy evidence from the same capture before making pixel-level UI claims.
 
 ## Local API
 
@@ -123,6 +125,9 @@ The shared client uses these endpoints:
 | `GET /api/search` | Text, class, identifier, or size search |
 | `POST /api/reload` | Refresh from the inspected app |
 | `GET /api/element/:oid/image` | Image content as base64 PNG |
+| `POST /api/images/export` | Export every image-bearing UIImageView to a directory |
 | `GET /api/element/:oid/screenshot` | Rendered element subtree as base64 PNG |
 
-Hierarchy and screenshot calls operate on Lookin's current inspection state. Reload before a final comparison, and avoid mixing artifacts captured before and after UI changes.
+The Lookin app also exposes batch image export at **Help > MCP > 批量导出当前界面图片…**. UIImageView candidates with nil image content and individual fetch/write failures are listed in `errors` without discarding successful files.
+
+Hierarchy and screenshot calls operate on Lookin's current inspection state. Reload before a final comparison, and avoid mixing artifacts captured before and after UI changes. Relative-position responses use root-coordinate axis-aligned bounds and include stable relations, axis gaps, minimum distance, edge touching, overlap area, and coverage ratios.

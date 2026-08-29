@@ -31,6 +31,18 @@ class _Response:
 
 
 class LookinClientTests(unittest.TestCase):
+    def test_export_all_images_sends_exact_json_body(self) -> None:
+        with patch(
+            "lookin_client.urlopen",
+            return_value=_Response({"status": "success", "exported_count": 0}),
+        ) as mocked:
+            LookinClient().export_all_images("/tmp/lookin-images")
+
+        request = mocked.call_args.args[0]
+        self.assertEqual(request.method, "POST")
+        self.assertEqual(request.get_header("Content-type"), "application/json")
+        self.assertEqual(request.data, b'{"directory":"/tmp/lookin-images"}')
+
     def test_hierarchy_encodes_filters(self) -> None:
         with patch("lookin_client.urlopen", return_value=_Response({"status": "success"})) as mocked:
             client = LookinClient("http://127.0.0.1:10086")
